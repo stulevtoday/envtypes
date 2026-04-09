@@ -8,28 +8,75 @@ import type {
 } from "./types.js";
 
 export function parseEnvFile(filePath: string): Map<string, string> {
-  const env = new Map<string, string>();
-  if (!fs.existsSync(filePath)) return env;
-
+  if (!fs.existsSync(filePath)) return new Map();
   const content = fs.readFileSync(filePath, "utf-8");
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
+  return parseEnvContent(content);
+}
 
-    const eqIndex = trimmed.indexOf("=");
+export function parseEnvContent(content: string): Map<string, string> {
+  const env = new Map<string, string>();
+  const lines = content.split("\n");
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    i++;
+
+    if (!line || line.startsWith("#")) continue;
+
+    // Strip optional `export ` prefix
+    const stripped = line.startsWith("export ") ? line.slice(7) : line;
+    const eqIndex = stripped.indexOf("=");
     if (eqIndex === -1) continue;
 
-    const key = trimmed.slice(0, eqIndex).trim();
-    let value = trimmed.slice(eqIndex + 1).trim();
+    const key = stripped.slice(0, eqIndex).trim();
+    let rawValue = stripped.slice(eqIndex + 1).trim();
 
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
+    // Double-quoted: supports multiline and escape sequences
+    if (rawValue.startsWith('"')) {
+      let value = rawValue.slice(1);
+      while (!value.includes('"') && i < lines.length) {
+        value += "\n" + lines[i];
+        i++;
+      }
+      const closeIdx = value.indexOf('"');
+      if (closeIdx !== -1) value = value.slice(0, closeIdx);
+      value = value
+        .replace(/\\n/g, "\n")
+        .replace(/\\r/g, "\r")
+        .replace(/\\t/g, "\t")
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, "\\");
+      env.set(key, value);
+      continue;
     }
 
-    env.set(key, value);
+    // Single-quoted: literal, no escaping, supports multiline
+    if (rawValue.startsWith("'")) {
+      let value = rawValue.slice(1);
+      while (!value.includes("'") && i < lines.length) {
+        value += "\n" + lines[i];
+        i++;
+      }
+      const closeIdx = value.indexOf("'");
+      if (closeIdx !== -1) value = value.slice(0, closeIdx);
+      env.set(key, value);
+      continue;
+    }
+
+    // Unquoted: strip inline comments, trim
+    const commentIdx = rawValue.indexOf(" #");
+    if (commentIdx !== -1) rawValue = rawValue.slice(0, commentIdx);
+    env.set(key, rawValue.trim());
+  }
+
+  // Variable interpolation: resolve ${VAR} references
+  for (const [key, value] of env) {
+    if (value.includes("${")) {
+      env.set(key, value.replace(/\$\{([A-Z_][A-Z0-9_]*)}/g, (_, ref) => {
+        return env.get(ref) ?? process.env[ref] ?? "";
+      }));
+    }
   }
 
   return env;
@@ -122,6 +169,14 @@ function validateType(
       return null;
     }
 
+    case "integer": {
+      const n = Number(value);
+      if (isNaN(n) || !Number.isInteger(n)) {
+        return `${name} should be an integer, got "${value}"`;
+      }
+      return null;
+    }
+
     case "url": {
       try {
         new URL(value);
@@ -129,6 +184,13 @@ function validateType(
       } catch {
         return `${name} should be a valid URL, got "${value}"`;
       }
+    }
+
+    case "email": {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+        return `${name} should be a valid email, got "${value}"`;
+      }
+      return null;
     }
 
     case "enum": {
@@ -144,16 +206,37 @@ function validateType(
 }
 
 export function findEnvFiles(cwd: string): string[] {
-  const candidates = [
+  const priority = [
     ".env",
     ".env.local",
     ".env.development",
+    ".env.development.local",
     ".env.production",
-    ".env.test",
+    ".env.production.local",
     ".env.staging",
+    ".env.staging.local",
+    ".env.test",
+    ".env.test.local",
   ];
 
-  return candidates
+  const found = priority
     .map((f) => path.join(cwd, f))
     .filter((f) => fs.existsSync(f));
+
+  // Also discover any .env.* files not in the priority list
+  try {
+    const entries = fs.readdirSync(cwd);
+    for (const entry of entries) {
+      if (entry.startsWith(".env") && entry !== ".env.example" && entry !== ".env.sample" && entry !== ".env.template") {
+        const full = path.join(cwd, entry);
+        if (!found.includes(full) && fs.statSync(full).isFile()) {
+          found.push(full);
+        }
+      }
+    }
+  } catch {
+    // directory not readable
+  }
+
+  return found;
 }

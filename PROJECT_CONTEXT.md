@@ -55,12 +55,12 @@ The end goal: no Node.js/TypeScript project should ever crash at runtime because
 - **Phase**: Feature-complete — pushed to GitHub, ready for npm publish
 - **GitHub**: https://github.com/stulevtoday/envtypes
 - **npm name**: `envtypes` (available, not yet published)
-- **Session**: 2
+- **Session**: 3
 - **What exists**:
-  - 14 source modules: cli, scanner, schema, validator, generator, frameworks, runtime, security, sync, config, watcher, audit, types, index
-  - 79 passing tests across 8 test files
+  - 15 source modules: cli, scanner, schema, validator, generator, frameworks, runtime, security, sync, config, watcher, audit, migrate, types, index
+  - 98 passing tests across 8 test files
   - Build working via tsup (ESM + DTS)
-  - 9 CLI commands: scan, init, check, generate, doctor, audit, diff, compare, watch
+  - 11 CLI commands: scan, init, check, generate, doctor, audit, diff, compare, watch, migrate, hook
   - Framework detection for 7 frameworks
   - Runtime `defineEnv` / `t` builder API
   - Security analysis (client-exposed secrets, weak defaults, gitignore coverage)
@@ -76,6 +76,12 @@ The end goal: no Node.js/TypeScript project should ever crash at runtime because
   - CI workflow (.github/workflows/ci.yml) — tests on Node 18/20/22
   - Ternary default detection in scanner
   - import.meta.env bracket access support
+  - Production-grade .env parser (multiline, interpolation, export prefix, escapes)
+  - Runtime types: t.email(), t.json(), t.integer(), t.regex(), .description()
+  - Schema migration from envalid, znv, t3-env
+  - Git pre-commit hook (envtypes hook install/uninstall)
+  - JSDoc comments in generated env.ts from schema descriptions
+  - Dynamic .env file discovery (*.local, custom names)
   - Comprehensive README with all features documented
 
 ## Architecture
@@ -138,6 +144,8 @@ Framework → [Detector] → scope classification (client/server)
 | `envtypes doctor` | Run all checks: validation + security + sync (--ci, --json) |
 | `envtypes audit` | Full markdown/JSON report for docs/compliance |
 | `envtypes compare` | Multi-environment matrix comparison |
+| `envtypes migrate` | Import schema from envalid/znv/t3-env |
+| `envtypes hook` | Install/uninstall git pre-commit hook |
 | `envtypes diff` | Compare .env files with auto-masked secrets |
 | `envtypes watch` | Continuous validation on file changes |
 
@@ -162,15 +170,14 @@ import { scan, generateSchema, validate, parseEnvFile } from "envtypes";
 
 ## Next Steps
 
-- [ ] Publish to npm as 0.1.0 (need npm account from user)
+- [ ] Publish to npm as 0.1.0
 - [ ] Monorepo support (scan specific packages, workspace-aware)
 - [ ] Incremental scan mode (cache results, only re-scan changed files)
 - [ ] Website / landing page
 - [ ] VS Code extension (inline diagnostics for .env files)
-- [ ] `envtypes migrate` — import from envalid/znv/t3-env schemas
-- [ ] Pre-commit hook integration
+- [ ] `envtypes validate` — validate a .envtypes.ts schema file itself
 - [ ] YAML output option for audit
-- [ ] `envtypes validate` — validate a schema file itself for correctness
+- [ ] Husky integration guide
 
 ## Ideas Backlog
 
@@ -227,3 +234,14 @@ import { scan, generateSchema, validate, parseEnvFile } from "envtypes";
 - Added 4 new tests (gitignore security, ternary defaults)
 - Updated README and PROJECT_CONTEXT with all new features
 - Build: 79 tests pass, tsup ESM+DTS builds clean, types check clean
+
+### Session 3 — 2026-04-10
+- Rewrote .env parser: multiline values, variable interpolation (${VAR}), export prefix, escape sequences, inline comments
+- Added runtime types: t.email(), t.json(), t.integer(), t.regex(), .description()
+- Added `envtypes migrate` command: auto-detect and import from envalid, znv, t3-env
+- Added `envtypes hook install/uninstall`: git pre-commit hook for envtypes doctor
+- Generated env.ts now includes JSDoc comments from schema descriptions
+- Dynamic .env file discovery: .env.*.local, custom filenames
+- Added email and integer type inference, validation, and generation
+- 19 new tests (enhanced parser, new runtime types, email/integer validation)
+- Build: 98 tests pass, tsup ESM+DTS builds clean, types check clean

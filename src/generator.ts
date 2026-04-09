@@ -3,8 +3,10 @@ import type { EnvVarSchema, InferredType } from "./types.js";
 function tsType(schema: EnvVarSchema): string {
   switch (schema.type) {
     case "string":
+    case "email":
       return "string";
     case "number":
+    case "integer":
     case "port":
       return "number";
     case "boolean":
@@ -24,6 +26,7 @@ function parseExpression(schema: EnvVarSchema): string {
 
   switch (schema.type) {
     case "number":
+    case "integer":
     case "port":
       if (schema.defaultValue !== undefined) {
         return `Number(${raw} ?? ${JSON.stringify(schema.defaultValue)})`;
@@ -39,6 +42,7 @@ function parseExpression(schema: EnvVarSchema): string {
         : `${raw} ? ["true", "1", "yes"].includes(${raw}.toLowerCase()) : undefined`;
 
     case "url":
+    case "email":
     case "string":
       if (schema.defaultValue !== undefined) {
         return `${raw} ?? ${JSON.stringify(schema.defaultValue)}`;
@@ -70,6 +74,9 @@ export function generateEnvModule(schemas: EnvVarSchema[]): string {
   for (const schema of schemas) {
     const type = tsType(schema);
     const optional = schema.required ? "" : "?";
+    if (schema.description) {
+      lines.push(`  /** ${schema.description} */`);
+    }
     lines.push(`  ${schema.name}${optional}: ${type};`);
   }
   lines.push("}", "");
@@ -165,11 +172,14 @@ function exampleValue(schema: EnvVarSchema): string {
     case "string":
       return `your_${schema.name.toLowerCase()}`;
     case "number":
+    case "integer":
       return "0";
     case "port":
       return "3000";
     case "boolean":
       return "true";
+    case "email":
+      return "user@example.com";
     case "enum":
       return schema.enumValues?.[0] ?? "value";
   }

@@ -12,6 +12,7 @@ import { checkExampleSync, findExampleFile } from "./sync.js";
 import { loadConfig, generateConfigFile } from "./config.js";
 import { watch as startWatch } from "./watcher.js";
 import { generateAuditReport } from "./audit.js";
+import { detectMigrationSource, migrateFromSource } from "./migrate.js";
 import type { EnvVarUsage, EnvVarSchema } from "./types.js";
 import type { FrameworkInfo } from "./frameworks.js";
 
@@ -780,6 +781,148 @@ program
     });
   });
 
+// --- hook ---
+
+program
+  .command("hook")
+  .description("Install or remove a git pre-commit hook for envtypes")
+  .argument("<action>", "install or uninstall")
+  .option("-d, --dir <path>", "Project directory", ".")
+  .action((action: string, opts) => {
+    const cwd = path.resolve(opts.dir);
+    const hookDir = path.join(cwd, ".git", "hooks");
+    const hookPath = path.join(hookDir, "pre-commit");
+
+    if (action === "install") {
+      if (!fs.existsSync(path.join(cwd, ".git"))) {
+        console.log(chalk.red("Not a git repository. Run git init first."));
+        process.exit(1);
+      }
+
+      if (!fs.existsSync(hookDir)) {
+        fs.mkdirSync(hookDir, { recursive: true });
+      }
+
+      const hookContent = [
+        "#!/bin/sh",
+        '# envtypes pre-commit hook — validates env vars before commit',
+        "",
+        'npx envtypes doctor --ci',
+        'if [ $? -ne 0 ]; then',
+        '  echo ""',
+        '  echo "envtypes: commit blocked due to env issues. Run npx envtypes doctor to fix."',
+        '  exit 1',
+        "fi",
+        "",
+      ].join("\n");
+
+      if (fs.existsSync(hookPath)) {
+        const existing = fs.readFileSync(hookPath, "utf-8");
+        if (existing.includes("envtypes")) {
+          console.log(chalk.yellow("envtypes hook already installed."));
+          return;
+        }
+        fs.appendFileSync(hookPath, "\n" + hookContent);
+        console.log(chalk.green("Appended envtypes check to existing pre-commit hook."));
+      } else {
+        fs.writeFileSync(hookPath, hookContent, { mode: 0o755 });
+        console.log(chalk.green("Installed pre-commit hook."));
+      }
+
+      console.log(chalk.dim("envtypes doctor --ci will run before each commit."));
+    } else if (action === "uninstall") {
+      if (!fs.existsSync(hookPath)) {
+        console.log(chalk.yellow("No pre-commit hook found."));
+        return;
+      }
+
+      const content = fs.readFileSync(hookPath, "utf-8");
+      if (!content.includes("envtypes")) {
+        console.log(chalk.yellow("No envtypes hook found in pre-commit."));
+        return;
+      }
+
+      const cleaned = content
+        .split("\n")
+        .filter((line) => !line.includes("envtypes"))
+        .join("\n")
+        .replace(/\n{3,}/g, "\n\n");
+
+      if (cleaned.trim() === "#!/bin/sh" || cleaned.trim() === "") {
+        fs.unlinkSync(hookPath);
+        console.log(chalk.green("Removed pre-commit hook."));
+      } else {
+        fs.writeFileSync(hookPath, cleaned, { mode: 0o755 });
+        console.log(chalk.green("Removed envtypes from pre-commit hook."));
+      }
+    } else {
+      console.log(chalk.red(`Unknown action: ${action}. Use "install" or "uninstall".`));
+      process.exit(1);
+    }
+  });
+
+// --- migrate ---
+
+program
+  .command("migrate")
+  .description("Import env schema from envalid, znv, or t3-env")
+  .option("-d, --dir <path>", "Project directory", ".")
+  .option("-s, --source <source>", "Force source: envalid, znv, t3-env")
+  .option("-o, --output <path>", "Output schema file", ".envtypes.ts")
+  .option("--force", "Overwrite existing schema file")
+  .option("--dry-run", "Show what would be generated without writing")
+  .action((opts) => {
+    const cwd = path.resolve(opts.dir);
+    const outputPath = path.resolve(cwd, opts.output);
+
+    if (fs.existsSync(outputPath) && !opts.force && !opts.dryRun) {
+      console.log(chalk.red(`${opts.output} already exists. Use --force to overwrite.`));
+      process.exit(1);
+    }
+
+    const source = opts.source ?? detectMigrationSource(cwd);
+    if (!source) {
+      console.log(chalk.red("Could not detect migration source."));
+      console.log(chalk.dim("Supported: envalid, znv, @t3-oss/env-*"));
+      console.log(chalk.dim("Use --source to specify manually."));
+      process.exit(1);
+    }
+
+    console.log(chalk.blue(`Migrating from ${chalk.bold(source)}...`), "\n");
+
+    const result = migrateFromSource(cwd, source);
+    if (!result || result.schemas.length === 0) {
+      console.log(chalk.yellow("Could not find schema definitions to migrate."));
+      console.log(chalk.dim(`Looked for ${source} patterns in your source files.`));
+      return;
+    }
+
+    console.log(
+      chalk.green(`Found ${result.schemas.length} variables`),
+      chalk.dim(`in ${result.sourceFile}`), "\n"
+    );
+
+    for (const schema of result.schemas) {
+      const tag = schema.required
+        ? chalk.red("required")
+        : chalk.yellow("optional");
+      const desc = schema.description ? chalk.dim(` — ${schema.description}`) : "";
+      console.log(`  ${chalk.bold(schema.name)} ${chalk.dim(schema.type)} [${tag}]${desc}`);
+    }
+
+    const content = schemaToTypenvFile(result.schemas);
+
+    if (opts.dryRun) {
+      console.log(chalk.dim("\n--- dry run: would generate ---\n"));
+      console.log(content);
+      return;
+    }
+
+    fs.writeFileSync(outputPath, content, "utf-8");
+    console.log(chalk.green(`\nGenerated ${opts.output} from ${source} schema`));
+    console.log(chalk.dim(`You can now remove ${source} from your dependencies.`));
+  });
+
 // --- helpers ---
 
 function suggestValue(schema: EnvVarSchema): string {
@@ -787,7 +930,9 @@ function suggestValue(schema: EnvVarSchema): string {
     case "port": return "3000";
     case "boolean": return "true";
     case "number": return "0";
+    case "integer": return "0";
     case "url": return "https://...";
+    case "email": return "user@example.com";
     case "enum": return schema.enumValues?.[0] ?? "";
     case "string": return `<your ${schema.name.toLowerCase()}>`;
   }
@@ -798,7 +943,9 @@ function describeExpectedType(schema: EnvVarSchema): string {
     case "port": return "integer 0-65535";
     case "boolean": return "true/false/1/0/yes/no";
     case "number": return "numeric value";
+    case "integer": return "integer value";
     case "url": return "valid URL (https://...)";
+    case "email": return "valid email (user@example.com)";
     case "enum": return `one of: ${schema.enumValues?.join(", ") ?? ""}`;
     case "string": return "any string";
   }

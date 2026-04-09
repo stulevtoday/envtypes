@@ -43,6 +43,11 @@ const SUFFIX_HINTS: [RegExp, InferredType][] = [
   [/_MIN$/i, "number"],
   [/_RETRIES$/i, "number"],
   [/_INTERVAL$/i, "number"],
+  [/_EMAIL$/i, "email"],
+  [/^EMAIL$/i, "email"],
+  [/^SMTP_FROM$/i, "email"],
+  [/^MAIL_FROM$/i, "email"],
+  [/^REPLY_TO$/i, "email"],
 ];
 
 const KNOWN_ENUMS: Record<string, string[]> = {
@@ -133,6 +138,9 @@ export function schemaToTypenvFile(schemas: EnvVarSchema[]): string {
       case "number":
         parts.push("t.number()");
         break;
+      case "integer":
+        parts.push("t.integer()");
+        break;
       case "boolean":
         parts.push("t.boolean()");
         break;
@@ -141,6 +149,9 @@ export function schemaToTypenvFile(schemas: EnvVarSchema[]): string {
         break;
       case "port":
         parts.push("t.port()");
+        break;
+      case "email":
+        parts.push("t.email()");
         break;
       case "enum":
         if (schema.enumValues) {

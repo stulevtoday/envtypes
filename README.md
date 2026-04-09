@@ -60,6 +60,9 @@ npx envtypes generate     # Emit a typed env module + .env.example
 - **Env compare** — Cross-environment matrix view of all variables
 - **JSON output** — Machine-readable output for `check`, `doctor`, and `audit` (`--json`)
 - **Gitignore check** — Warns if `.env` files are not gitignored
+- **Migration** — Import schemas from envalid, znv, or t3-env (`envtypes migrate`)
+- **Pre-commit hook** — `envtypes hook install` blocks commits with env issues
+- **Enhanced .env parser** — Multiline values, `${VAR}` interpolation, `export` prefix, escape sequences
 
 ## Commands
 
@@ -201,6 +204,25 @@ envtypes init              # Generates .envtypes.ts
 envtypes init --force      # Overwrite existing
 ```
 
+### `envtypes migrate`
+
+Import env schema from envalid, znv, or t3-env — automatically converts to envtypes format.
+
+```bash
+envtypes migrate                    # Auto-detect source
+envtypes migrate --source envalid   # Force source
+envtypes migrate --dry-run          # Preview without writing
+```
+
+### `envtypes hook`
+
+Install a git pre-commit hook that runs `envtypes doctor --ci` before each commit.
+
+```bash
+envtypes hook install      # Add pre-commit hook
+envtypes hook uninstall    # Remove it
+```
+
 ## Runtime API
 
 Use `defineEnv` and `t` builders for runtime validation with full TypeScript inference:
@@ -210,15 +232,20 @@ import { defineEnv, t } from "envtypes";
 
 const env = defineEnv({
   PORT: t.port().default("3000"),
-  DATABASE_URL: t.url(),
+  DATABASE_URL: t.url().description("Primary database connection"),
   NODE_ENV: t.enum(["development", "production", "test"]),
   DEBUG: t.boolean().optional(),
   API_KEY: t.string(),
+  WORKERS: t.integer().default("4"),
+  ADMIN_EMAIL: t.email(),
+  FEATURE_FLAGS: t.json<{ darkMode: boolean }>().optional(),
+  BUILD_TAG: t.regex(/^v\d+\.\d+\.\d+$/, "semver tag").optional(),
 });
 
-// env.PORT    → number
-// env.DEBUG   → boolean | undefined
-// env.NODE_ENV → "development" | "production" | "test"
+// env.PORT          → number
+// env.DEBUG         → boolean | undefined
+// env.NODE_ENV      → "development" | "production" | "test"
+// env.FEATURE_FLAGS → { darkMode: boolean } | undefined
 ```
 
 Throws on startup with all errors at once:
@@ -235,6 +262,7 @@ Error: Environment validation failed:
 |---------|--------------|---------|
 | `*_PORT` | port (0-65535) | `PORT`, `DB_PORT` |
 | `*_URL`, `*_URI` | URL | `DATABASE_URL`, `REDIS_URL` |
+| `*_EMAIL`, `SMTP_FROM`, `REPLY_TO` | email | `ADMIN_EMAIL`, `MAIL_FROM` |
 | `DEBUG`, `ENABLE_*`, `IS_*`, `USE_*` | boolean | `DEBUG`, `ENABLE_CACHE` |
 | `*_COUNT`, `*_SIZE`, `*_TIMEOUT`, `*_TTL` | number | `MAX_RETRIES`, `CACHE_TTL` |
 | `NODE_ENV` | enum | `development`, `production`, `test` |
@@ -300,6 +328,17 @@ Create `.envtypes.json` in your project root, or add an `envtypes` field to `pac
   with:
     command: doctor
 ```
+
+## .env Parsing
+
+envtypes includes a production-grade `.env` parser:
+
+- **`export` prefix** — `export PORT=3000` works
+- **Multiline values** — Double-quoted values can span lines
+- **Escape sequences** — `\n`, `\t`, `\\`, `\"` in double-quoted values
+- **Single quotes** — Literal values, no escaping
+- **Variable interpolation** — `DATABASE_URL=postgres://${DB_HOST}:${DB_PORT}/${DB_NAME}`
+- **Inline comments** — `PORT=3000 # web server port`
 
 ## Programmatic API
 

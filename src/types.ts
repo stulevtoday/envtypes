@@ -8,7 +8,7 @@ export interface EnvVarUsage {
   defaultValue?: string;
 }
 
-export type InferredType = "string" | "number" | "boolean" | "url" | "port" | "enum";
+export type InferredType = "string" | "number" | "integer" | "boolean" | "url" | "port" | "email" | "enum";
 
 export type EnvScope = "server" | "client" | "unknown";
 

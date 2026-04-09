@@ -1,6 +1,7 @@
 class Schema<T> {
   private _required = true;
   private _default?: string;
+  private _description?: string;
   private _parse: (value: string) => T;
 
   constructor(parse: (value: string) => T) {
@@ -15,6 +16,16 @@ class Schema<T> {
   default(value: string): Schema<T> {
     this._default = value;
     return this;
+  }
+
+  description(text: string): Schema<T> {
+    this._description = text;
+    return this;
+  }
+
+  /** @internal */
+  get meta() {
+    return { required: this._required, default: this._default, description: this._description };
   }
 
   /** @internal */
@@ -81,6 +92,44 @@ export const t = {
         throw new Error(`Expected one of [${values.join(", ")}], got "${v}"`);
       }
       return v as T;
+    });
+  },
+
+  integer(): Schema<number> {
+    return new Schema((v) => {
+      const n = Number(v);
+      if (isNaN(n) || !Number.isInteger(n)) {
+        throw new Error(`Expected integer, got "${v}"`);
+      }
+      return n;
+    });
+  },
+
+  email(): Schema<string> {
+    return new Schema((v) => {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+        throw new Error(`Expected email address, got "${v}"`);
+      }
+      return v;
+    });
+  },
+
+  json<T = unknown>(): Schema<T> {
+    return new Schema((v) => {
+      try {
+        return JSON.parse(v) as T;
+      } catch {
+        throw new Error(`Expected valid JSON, got "${v.slice(0, 50)}${v.length > 50 ? "..." : ""}"`);
+      }
+    });
+  },
+
+  regex(pattern: RegExp, label?: string): Schema<string> {
+    return new Schema((v) => {
+      if (!pattern.test(v)) {
+        throw new Error(`Expected ${label ?? `match for ${pattern}`}, got "${v}"`);
+      }
+      return v;
     });
   },
 };
