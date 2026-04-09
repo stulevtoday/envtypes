@@ -55,8 +55,11 @@ npx envtypes generate     # Emit a typed env module + .env.example
 - **Security analysis** — Catches leaked secrets, weak defaults, exposed DB connections
 - **Config file** — `.envtypes.json` for project-specific settings
 - **Watch mode** — Continuous validation during development
-- **Audit reports** — Full markdown report for docs and compliance
+- **Audit reports** — Full markdown or JSON report for docs and compliance
 - **Env diff** — Compare `.env` files across environments with auto-masked secrets
+- **Env compare** — Cross-environment matrix view of all variables
+- **JSON output** — Machine-readable output for `check`, `doctor`, and `audit` (`--json`)
+- **Gitignore check** — Warns if `.env` files are not gitignored
 
 ## Commands
 
@@ -78,6 +81,7 @@ Validate `.env` files against your codebase with actionable error messages.
 envtypes check                    # Check all .env files
 envtypes check --env .env.prod    # Check specific file
 envtypes check --ci               # Exit code 1 on errors
+envtypes check --json             # Machine-readable JSON output
 ```
 
 When errors are found, envtypes suggests fixes:
@@ -99,6 +103,7 @@ Run all checks in one pass: validation, security, and `.env.example` sync.
 ```bash
 envtypes doctor          # Full health check
 envtypes doctor --ci     # Fail on critical issues
+envtypes doctor --json   # Structured JSON for CI pipelines
 ```
 
 ### `envtypes generate`
@@ -139,6 +144,27 @@ Different values:
 1 identical · 3 different · 1 only in .env · 0 only in .env.staging
 ```
 
+### `envtypes compare`
+
+Show a matrix of environment variables across multiple `.env` files — see which vars are present or missing in each environment at a glance.
+
+```bash
+envtypes compare .env .env.staging .env.production
+envtypes compare .env .env.staging --json
+```
+
+```
+Variable            .env         .env.staging .env.production
+──────────────────────────────────────────────────────────────
+API_KEY             sk****yz     sk****ab     sk****cd
+DATABASE_URL        postgres://… postgres://… postgres://…
+DEBUG               true         ✗            ✗
+NODE_ENV            development  staging      production
+PORT                3000         3000         8080
+──────────────────────────────────────────────────────────────
+Coverage: .env: 5/5 (100%)  ·  .env.staging: 4/5 (80%)  ·  .env.production: 4/5 (80%)
+```
+
 ### `envtypes audit`
 
 Generate a comprehensive markdown report of all environment variables — useful for documentation, onboarding, and compliance.
@@ -146,6 +172,8 @@ Generate a comprehensive markdown report of all environment variables — useful
 ```bash
 envtypes audit                     # Print to stdout
 envtypes audit -o ENV_AUDIT.md     # Write to file
+envtypes audit --json              # Structured JSON output
+envtypes audit --json -o audit.json
 ```
 
 ### `envtypes watch`
@@ -234,6 +262,7 @@ envtypes catches common security mistakes:
 - **Leaked connection strings** — `VITE_DATABASE_URL` exposes database credentials to the client
 - **Weak defaults** — `JWT_SECRET` defaults to `"changeme"` or short placeholder values
 - **Known credential patterns** — Detects `AWS_SECRET_ACCESS_KEY`, `STRIPE_SECRET_KEY`, etc.
+- **Gitignore coverage** — Warns if `.env` files are not listed in `.gitignore`
 
 ## Configuration
 
@@ -267,7 +296,7 @@ Create `.envtypes.json` in your project root, or add an `envtypes` field to `pac
 ### GitHub Action
 
 ```yaml
-- uses: your-org/envtypes-action@v1
+- uses: stulevtoday/envtypes@v1
   with:
     command: doctor
 ```

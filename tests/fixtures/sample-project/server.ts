@@ -18,6 +18,8 @@ if (process.env.ENABLE_LOGGING === "true") {
 
 const maxRetries = Number(process.env.MAX_RETRIES ?? "3");
 
+const verbose = process.env.VERBOSE ? process.env.VERBOSE : "false";
+
 app.listen(port, host, () => {
   console.log(`Server running on ${host}:${port} in ${nodeEnv} mode`);
 });

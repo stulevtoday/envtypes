@@ -52,24 +52,30 @@ The end goal: no Node.js/TypeScript project should ever crash at runtime because
 
 ## Current State
 
-- **Phase**: Feature-complete — ready for npm publish and GitHub
+- **Phase**: Feature-complete — pushed to GitHub, ready for npm publish
+- **GitHub**: https://github.com/stulevtoday/envtypes
 - **npm name**: `envtypes` (available, not yet published)
-- **Session**: 1
+- **Session**: 2
 - **What exists**:
   - 14 source modules: cli, scanner, schema, validator, generator, frameworks, runtime, security, sync, config, watcher, audit, types, index
-  - 75 passing tests across 8 test files
+  - 79 passing tests across 8 test files
   - Build working via tsup (ESM + DTS)
-  - 8 CLI commands: scan, init, check, generate, doctor, audit, diff, watch
+  - 9 CLI commands: scan, init, check, generate, doctor, audit, diff, compare, watch
   - Framework detection for 7 frameworks
   - Runtime `defineEnv` / `t` builder API
-  - Security analysis (client-exposed secrets, weak defaults)
+  - Security analysis (client-exposed secrets, weak defaults, gitignore coverage)
   - `.env.example` sync checker
   - Config file support (`.envtypes.json` / package.json field)
   - Multi-runtime: Node.js, Deno, Bun, Vite/Astro
   - Watch mode for continuous development validation
-  - Markdown audit report generator
+  - Markdown + JSON audit report generator
   - Env diff with automatic secret masking
+  - Env compare — multi-environment matrix view
+  - JSON output for check, doctor, and audit (CI-friendly)
   - GitHub Action ready (action.yml)
+  - CI workflow (.github/workflows/ci.yml) — tests on Node 18/20/22
+  - Ternary default detection in scanner
+  - import.meta.env bracket access support
   - Comprehensive README with all features documented
 
 ## Architecture
@@ -127,10 +133,11 @@ Framework → [Detector] → scope classification (client/server)
 |---------|-------------|
 | `envtypes scan` | Discover env vars, show report with framework scope |
 | `envtypes init` | Generate `.envtypes.ts` schema from scan |
-| `envtypes check` | Validate `.env` against schema (--ci for CI) |
+| `envtypes check` | Validate `.env` against schema (--ci, --json) |
 | `envtypes generate` | Emit type-safe `env.ts` + `.env.example` |
-| `envtypes doctor` | Run all checks: validation + security + sync |
-| `envtypes audit` | Full markdown report for docs/compliance |
+| `envtypes doctor` | Run all checks: validation + security + sync (--ci, --json) |
+| `envtypes audit` | Full markdown/JSON report for docs/compliance |
+| `envtypes compare` | Multi-environment matrix comparison |
 | `envtypes diff` | Compare .env files with auto-masked secrets |
 | `envtypes watch` | Continuous validation on file changes |
 
@@ -156,15 +163,14 @@ import { scan, generateSchema, validate, parseEnvFile } from "envtypes";
 ## Next Steps
 
 - [ ] Publish to npm as 0.1.0 (need npm account from user)
-- [ ] Create GitHub repository (user will set up)
 - [ ] Monorepo support (scan specific packages, workspace-aware)
 - [ ] Incremental scan mode (cache results, only re-scan changed files)
 - [ ] Website / landing page
 - [ ] VS Code extension (inline diagnostics for .env files)
 - [ ] `envtypes migrate` — import from envalid/znv/t3-env schemas
-- [ ] `envtypes compare` — cross-environment matrix (dev/staging/prod)
-- [ ] JSON/YAML output for `doctor` and `check` (machine-readable)
 - [ ] Pre-commit hook integration
+- [ ] YAML output option for audit
+- [ ] `envtypes validate` — validate a schema file itself for correctness
 
 ## Ideas Backlog
 
@@ -173,9 +179,10 @@ import { scan, generateSchema, validate, parseEnvFile } from "envtypes";
 - Rust support (`std::env::var`)
 - VS Code extension (inline warnings, autocomplete for .env)
 - Web dashboard for team env management
-- Diff mode: compare .env files across environments
-- Secret detection: warn if values look like real credentials
+- Secret detection: warn if actual values look like real credentials (entropy check)
 - Migration from envalid/znv/t3-env
+- TOML config support (`.envtypes.toml`)
+- Turbopack / Webpack env plugin integration
 
 ## Session Log
 
@@ -207,3 +214,16 @@ import { scan, generateSchema, validate, parseEnvFile } from "envtypes";
 - Added: diff command — compare .env files, auto-mask secrets
 - Updated README with complete feature documentation
 - Build: 75 tests pass, tsup ESM+DTS builds clean, 4 commits
+
+### Session 2 — 2026-04-10
+- Pushed codebase to GitHub (git@github.com:stulevtoday/envtypes.git)
+- Implemented `.gitignore` security check — warns if `.env` files aren't gitignored
+- Added `--json` flag to `check`, `doctor`, and `audit` commands for CI integration
+- Added `envtypes compare` command — multi-environment matrix view
+- Hardened scanner: ternary default detection (`x ? x : 'default'`)
+- Added `import.meta.env["VAR"]` bracket access support
+- Added CI workflow (`.github/workflows/ci.yml`) — Node 18/20/22 matrix
+- Fixed `action.yml` author and example workflow org references
+- Added 4 new tests (gitignore security, ternary defaults)
+- Updated README and PROJECT_CONTEXT with all new features
+- Build: 79 tests pass, tsup ESM+DTS builds clean, types check clean

@@ -89,7 +89,7 @@ function extractEnvVars(
       // Deno.env.get("VAR") handled below in CallExpression
     }
 
-    // process.env['VAR_NAME'] or process.env["VAR_NAME"]
+    // process.env['VAR_NAME'] or process.env["VAR_NAME"] or import.meta.env["VAR"]
     if (node.isKind(SyntaxKind.ElementAccessExpression)) {
       const result = matchBracketAccess(node, filePath);
       if (result) results.push(result);
@@ -133,9 +133,11 @@ function matchDotAccess(node: Node, filePath: string): EnvVarUsage | null {
 
 function matchBracketAccess(node: Node, filePath: string): EnvVarUsage | null {
   const text = node.getText();
-  // process.env["VAR"] or Bun.env["VAR"]
+  // process.env["VAR"], Bun.env["VAR"], import.meta.env["VAR"]
   const match = text.match(
     /^(?:process|Bun)\.env\[['"]([A-Z_][A-Z0-9_]*)['"]\]$/
+  ) ?? text.match(
+    /^import\.meta\.env\[['"]([A-Z_][A-Z0-9_]*)['"]\]$/
   );
   if (!match) return null;
 
@@ -244,12 +246,20 @@ function detectDefault(node: Node): {
   const parent = node.getParent();
   if (!parent) return { hasDefault: false };
 
-  // process.env.X || 'default'
+  // process.env.X || 'default' or process.env.X ?? 'default'
   if (parent.isKind(SyntaxKind.BinaryExpression)) {
     const operator = parent.getOperatorToken().getText();
     if (operator === "||" || operator === "??") {
       const right = parent.getRight().getText().replace(/^['"]|['"]$/g, "");
       return { hasDefault: true, defaultValue: right };
+    }
+  }
+
+  // condition ? process.env.X : 'default' (ternary — detect if node is the "when true" branch)
+  if (parent.isKind(SyntaxKind.ConditionalExpression)) {
+    const whenFalse = parent.getWhenFalse().getText().replace(/^['"]|['"]$/g, "");
+    if (whenFalse && !whenFalse.includes("process.env") && !whenFalse.includes("import.meta.env")) {
+      return { hasDefault: true, defaultValue: whenFalse };
     }
   }
 

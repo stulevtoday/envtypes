@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { EnvVarSchema, EnvScope } from "./types.js";
 import type { FrameworkInfo } from "./frameworks.js";
 import { classifyVariable } from "./frameworks.js";
@@ -65,15 +67,19 @@ const DB_CONNECTION_PATTERNS = [
 export function analyzeSecurityIssues(
   schemas: EnvVarSchema[],
   frameworks: FrameworkInfo[],
-  envValues?: Map<string, string>
+  envValues?: Map<string, string>,
+  cwd?: string,
 ): SecurityIssue[] {
   const issues: SecurityIssue[] = [];
+
+  if (cwd) {
+    issues.push(...checkGitignoreCoversEnv(cwd));
+  }
 
   for (const schema of schemas) {
     issues.push(
       ...checkClientExposedSecrets(schema, frameworks),
       ...checkWeakDefaults(schema),
-      ...checkMissingFromGitignore(schema),
     );
 
     if (envValues) {
@@ -164,8 +170,34 @@ function checkWeakDefaults(schema: EnvVarSchema): SecurityIssue[] {
   return [];
 }
 
-function checkMissingFromGitignore(_schema: EnvVarSchema): SecurityIssue[] {
-  // Placeholder — will be implemented when we add file-system checks
+function checkGitignoreCoversEnv(cwd: string): SecurityIssue[] {
+  const gitignorePath = path.join(cwd, ".gitignore");
+  if (!fs.existsSync(gitignorePath)) {
+    return [{
+      variable: ".gitignore",
+      severity: "warning",
+      rule: "no-gitignore",
+      message: "No .gitignore found — .env files may be committed to version control",
+      suggestion: "Create a .gitignore and add .env, .env.local, .env.*.local",
+    }];
+  }
+
+  const content = fs.readFileSync(gitignorePath, "utf-8");
+  const lines = content.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
+
+  const envPatterns = [".env", ".env.*", ".env.local", ".env*.local", ".env.*.local"];
+  const covered = envPatterns.some((p) => lines.includes(p)) || lines.includes(".env*");
+
+  if (!covered) {
+    return [{
+      variable: ".gitignore",
+      severity: "warning",
+      rule: "env-not-gitignored",
+      message: ".env files are not listed in .gitignore — secrets may be committed",
+      suggestion: "Add .env, .env.local, and .env.*.local to your .gitignore",
+    }];
+  }
+
   return [];
 }
 

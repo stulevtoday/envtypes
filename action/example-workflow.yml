@@ -21,6 +21,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Validate environment variables
-        uses: your-org/envtypes-action@v1
+        uses: stulevtoday/envtypes@v1
         with:
           command: doctor

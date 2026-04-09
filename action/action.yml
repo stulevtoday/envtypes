@@ -1,6 +1,6 @@
 name: 'envtypes'
 description: 'Validate environment variables against your codebase. Catch missing, mistyped, and insecure env vars in CI.'
-author: 'envtypes'
+author: 'stulevtoday'
 
 branding:
   icon: 'shield'

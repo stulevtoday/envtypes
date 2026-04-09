@@ -1,4 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { analyzeSecurityIssues } from "../src/security.js";
 import type { EnvVarSchema } from "../src/types.js";
 import type { FrameworkInfo } from "../src/frameworks.js";
@@ -115,6 +117,45 @@ describe("security analysis", () => {
       const issues = analyzeSecurityIssues(schemas, [], env);
       expect(issues.some((i) => i.rule === "localhost-url")).toBe(true);
       expect(issues.find((i) => i.rule === "localhost-url")?.severity).toBe("info");
+    });
+  });
+
+  describe("gitignore check", () => {
+    const tmpDir = path.resolve(__dirname, "fixtures/gitignore-test");
+
+    beforeEach(() => {
+      fs.mkdirSync(tmpDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it("warns when no .gitignore exists", () => {
+      const schemas: EnvVarSchema[] = [
+        { name: "API_KEY", type: "string", required: true },
+      ];
+      const issues = analyzeSecurityIssues(schemas, [], undefined, tmpDir);
+      expect(issues.some((i) => i.rule === "no-gitignore")).toBe(true);
+    });
+
+    it("warns when .gitignore does not cover .env", () => {
+      fs.writeFileSync(path.join(tmpDir, ".gitignore"), "node_modules/\ndist/\n");
+      const schemas: EnvVarSchema[] = [
+        { name: "API_KEY", type: "string", required: true },
+      ];
+      const issues = analyzeSecurityIssues(schemas, [], undefined, tmpDir);
+      expect(issues.some((i) => i.rule === "env-not-gitignored")).toBe(true);
+    });
+
+    it("does not warn when .gitignore covers .env", () => {
+      fs.writeFileSync(path.join(tmpDir, ".gitignore"), "node_modules/\n.env\n.env.local\n");
+      const schemas: EnvVarSchema[] = [
+        { name: "API_KEY", type: "string", required: true },
+      ];
+      const issues = analyzeSecurityIssues(schemas, [], undefined, tmpDir);
+      expect(issues.some((i) => i.rule === "no-gitignore")).toBe(false);
+      expect(issues.some((i) => i.rule === "env-not-gitignored")).toBe(false);
     });
   });
 });

@@ -21,6 +21,7 @@ describe("scanner", () => {
       "PORT",
       "REDIS_URL",
       "SECRET_TOKEN",
+      "VERBOSE",
     ]);
   });
 
@@ -69,6 +70,15 @@ describe("scanner", () => {
     );
     expect(host).toBeDefined();
     expect(host?.defaultValue).toBe("0.0.0.0");
+  });
+
+  it("detects ternary defaults", () => {
+    const result = scan({ cwd: FIXTURE_DIR });
+    const verbose = result.variables.find(
+      (v) => v.name === "VERBOSE" && v.hasDefault
+    );
+    expect(verbose).toBeDefined();
+    expect(verbose?.defaultValue).toBe("false");
   });
 
   it("returns file list", () => {

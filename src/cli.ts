@@ -158,11 +158,14 @@ program
   .option("-d, --dir <path>", "Project directory", ".")
   .option("-e, --env <path>", "Specific .env file to check")
   .option("--ci", "Exit with code 1 on validation errors")
+  .option("--json", "Output results as JSON")
   .action((opts) => {
     const cwd = path.resolve(opts.dir);
     const config = loadConfig(cwd);
 
-    console.log(chalk.blue("Scanning codebase for env var usage..."), "\n");
+    if (!opts.json) {
+      console.log(chalk.blue("Scanning codebase for env var usage..."), "\n");
+    }
     const result = scan({
       cwd,
       include: config.include,
@@ -170,6 +173,7 @@ program
     });
 
     if (result.variables.length === 0) {
+      if (opts.json) { console.log(JSON.stringify({ files: [], variables: 0, results: [] })); return; }
       console.log(chalk.yellow("No environment variables found in code."));
       return;
     }
@@ -185,6 +189,11 @@ program
       : findEnvFiles(cwd);
 
     if (envFiles.length === 0) {
+      if (opts.json) {
+        console.log(JSON.stringify({ files: [], variables: schemas.length, results: [], error: "no-env-files" }));
+        if (opts.ci) process.exit(1);
+        return;
+      }
       console.log(chalk.yellow("No .env files found.\n"));
       console.log(chalk.dim("Tip: create a .env file with the following required variables:\n"));
       for (const s of schemas.filter((s) => s.required)) {
@@ -195,11 +204,24 @@ program
     }
 
     let hasErrors = false;
+    const jsonResults: Array<{ file: string; valid: boolean; missing: string[]; typeErrors: string[]; extra: string[] }> = [];
 
     for (const envFile of envFiles) {
       const fileName = path.relative(cwd, envFile);
       const values = parseEnvFile(envFile);
       const validationResult = validate(schemas, values);
+
+      if (opts.json) {
+        jsonResults.push({
+          file: fileName,
+          valid: validationResult.valid,
+          missing: validationResult.missing,
+          typeErrors: validationResult.typeErrors,
+          extra: validationResult.extra,
+        });
+        if (!validationResult.valid) hasErrors = true;
+        continue;
+      }
 
       if (validationResult.valid && validationResult.extra.length === 0) {
         console.log(chalk.green(`✓ ${fileName}`), "— all good");
@@ -240,6 +262,15 @@ program
       }
 
       console.log();
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify({
+        variables: schemas.length,
+        files: envFiles.map((f) => path.relative(cwd, f)),
+        valid: !hasErrors,
+        results: jsonResults,
+      }));
     }
 
     if (hasErrors && opts.ci) {
@@ -308,39 +339,55 @@ program
   .description("Run all checks: validation, security, sync — in one pass")
   .option("-d, --dir <path>", "Project directory", ".")
   .option("--ci", "Exit with code 1 on any errors")
+  .option("--json", "Output results as JSON")
   .action((opts) => {
     const cwd = path.resolve(opts.dir);
     const { detected: frameworks } = detectFrameworks(cwd);
     let exitCode = 0;
 
-    if (frameworks.length > 0) {
-      const names = frameworks.map((f) => chalk.cyan(f.name)).join(", ");
-      console.log(chalk.blue("Framework:"), names);
+    if (!opts.json) {
+      if (frameworks.length > 0) {
+        const names = frameworks.map((f) => chalk.cyan(f.name)).join(", ");
+        console.log(chalk.blue("Framework:"), names);
+      }
+      console.log(chalk.blue("Scanning"), cwd, "\n");
     }
-    console.log(chalk.blue("Scanning"), cwd, "\n");
 
     const result = scan({ cwd });
     if (result.variables.length === 0) {
+      if (opts.json) { console.log(JSON.stringify({ variables: 0, valid: true, validation: [], security: [], sync: null })); return; }
       console.log(chalk.yellow("No environment variables found."));
       return;
     }
 
     const schemas = generateSchema(result.variables);
     const grouped = groupByName(result.variables);
-    console.log(
-      chalk.bold(`Found ${chalk.green(grouped.size)} variables`),
-      `in ${result.files.length} files`,
-      chalk.dim(`(${Math.round(result.duration)}ms)\n`)
-    );
+
+    if (!opts.json) {
+      console.log(
+        chalk.bold(`Found ${chalk.green(grouped.size)} variables`),
+        `in ${result.files.length} files`,
+        chalk.dim(`(${Math.round(result.duration)}ms)\n`)
+      );
+    }
 
     // 1. .env validation
     const envFiles = findEnvFiles(cwd);
+    const jsonValidation: Array<{ file: string; valid: boolean; missing: string[]; typeErrors: string[]; extra: string[] }> = [];
+
     if (envFiles.length > 0) {
-      console.log(chalk.bold.underline("Validation"));
+      if (!opts.json) console.log(chalk.bold.underline("Validation"));
       for (const envFile of envFiles) {
         const fileName = path.relative(cwd, envFile);
         const values = parseEnvFile(envFile);
         const vr = validate(schemas, values);
+
+        jsonValidation.push({ file: fileName, valid: vr.valid, missing: vr.missing, typeErrors: vr.typeErrors, extra: vr.extra });
+
+        if (opts.json) {
+          if (!vr.valid) exitCode = 1;
+          continue;
+        }
 
         if (vr.valid && vr.extra.length === 0) {
           console.log(chalk.green(`  ✓ ${fileName}`));
@@ -360,75 +407,100 @@ program
           }
         }
       }
-      console.log();
+      if (!opts.json) console.log();
     } else {
-      console.log(chalk.yellow("No .env files found.\n"));
+      if (!opts.json) console.log(chalk.yellow("No .env files found.\n"));
     }
 
     // 2. Security analysis
     const envValues = envFiles.length > 0
       ? parseEnvFile(envFiles[0])
       : undefined;
-    const issues = analyzeSecurityIssues(schemas, frameworks, envValues);
+    const issues = analyzeSecurityIssues(schemas, frameworks, envValues, cwd);
 
-    if (issues.length > 0) {
-      console.log(chalk.bold.underline("Security"));
-      for (const issue of issues) {
-        const icon =
-          issue.severity === "critical" ? chalk.red("✗") :
-          issue.severity === "warning" ? chalk.yellow("!") :
-          chalk.blue("i");
+    if (!opts.json) {
+      if (issues.length > 0) {
+        console.log(chalk.bold.underline("Security"));
+        for (const issue of issues) {
+          const icon =
+            issue.severity === "critical" ? chalk.red("✗") :
+            issue.severity === "warning" ? chalk.yellow("!") :
+            chalk.blue("i");
 
-        const label =
-          issue.severity === "critical" ? chalk.red.bold("CRITICAL") :
-          issue.severity === "warning" ? chalk.yellow.bold("WARNING") :
-          chalk.blue("INFO");
+          const label =
+            issue.severity === "critical" ? chalk.red.bold("CRITICAL") :
+            issue.severity === "warning" ? chalk.yellow.bold("WARNING") :
+            chalk.blue("INFO");
 
-        console.log(`  ${icon} ${label} ${issue.message}`);
-        if (issue.suggestion) {
-          console.log(chalk.dim(`    → ${issue.suggestion}`));
+          console.log(`  ${icon} ${label} ${issue.message}`);
+          if (issue.suggestion) {
+            console.log(chalk.dim(`    → ${issue.suggestion}`));
+          }
+
+          if (issue.severity === "critical") exitCode = 1;
         }
-
-        if (issue.severity === "critical") exitCode = 1;
+        console.log();
+      } else {
+        console.log(chalk.bold.underline("Security"));
+        console.log(chalk.green("  ✓ No security issues found\n"));
       }
-      console.log();
     } else {
-      console.log(chalk.bold.underline("Security"));
-      console.log(chalk.green("  ✓ No security issues found\n"));
+      if (issues.some((i) => i.severity === "critical")) exitCode = 1;
     }
 
     // 3. .env.example sync
     const exampleFile = findExampleFile(cwd);
-    console.log(chalk.bold.underline("Sync"));
+    let syncResult: ReturnType<typeof checkExampleSync> = null;
+
+    if (!opts.json) {
+      console.log(chalk.bold.underline("Sync"));
+    }
+
     if (exampleFile) {
-      const sync = checkExampleSync(schemas, exampleFile);
-      if (sync && sync.inSync) {
-        console.log(chalk.green(`  ✓ ${path.relative(cwd, exampleFile)} is in sync`));
-      } else if (sync) {
-        for (const name of sync.missingFromExample) {
-          console.log(chalk.red(`  ✗ ${name} — missing from .env.example`));
-        }
-        for (const name of sync.extraInExample) {
-          console.log(chalk.yellow(`  ? ${name} — in .env.example but not in code`));
-        }
-        for (const s of sync.staleDefaults) {
-          console.log(chalk.yellow(`  ! ${s.variable} — example has "${s.exampleValue}", code defaults to "${s.schemaDefault}"`));
+      syncResult = checkExampleSync(schemas, exampleFile);
+      if (!opts.json) {
+        if (syncResult && syncResult.inSync) {
+          console.log(chalk.green(`  ✓ ${path.relative(cwd, exampleFile)} is in sync`));
+        } else if (syncResult) {
+          for (const name of syncResult.missingFromExample) {
+            console.log(chalk.red(`  ✗ ${name} — missing from .env.example`));
+          }
+          for (const name of syncResult.extraInExample) {
+            console.log(chalk.yellow(`  ? ${name} — in .env.example but not in code`));
+          }
+          for (const s of syncResult.staleDefaults) {
+            console.log(chalk.yellow(`  ! ${s.variable} — example has "${s.exampleValue}", code defaults to "${s.schemaDefault}"`));
+          }
         }
       }
-    } else {
+    } else if (!opts.json) {
       console.log(chalk.yellow("  No .env.example found. Run"), chalk.bold("envtypes generate"), chalk.yellow("to create one."));
     }
 
-    // Summary
+    // Summary / JSON output
     const criticals = issues.filter((i) => i.severity === "critical").length;
     const warnings = issues.filter((i) => i.severity === "warning").length;
-    console.log(chalk.bold("\n───────────────────────────────────"));
-    if (exitCode === 0) {
-      console.log(chalk.green.bold("  All checks passed"));
+
+    if (opts.json) {
+      console.log(JSON.stringify({
+        variables: grouped.size,
+        files: result.files.length,
+        frameworks: frameworks.map((f) => f.name),
+        duration: Math.round(result.duration),
+        valid: exitCode === 0,
+        validation: jsonValidation,
+        security: issues.map((i) => ({ variable: i.variable, severity: i.severity, rule: i.rule, message: i.message })),
+        sync: syncResult ? { inSync: syncResult.inSync, missingFromExample: syncResult.missingFromExample, extraInExample: syncResult.extraInExample } : null,
+      }));
     } else {
-      console.log(chalk.red.bold(`  ${criticals} critical issue(s)`), warnings > 0 ? chalk.yellow(`  ${warnings} warning(s)`) : "");
+      console.log(chalk.bold("\n───────────────────────────────────"));
+      if (exitCode === 0) {
+        console.log(chalk.green.bold("  All checks passed"));
+      } else {
+        console.log(chalk.red.bold(`  ${criticals} critical issue(s)`), warnings > 0 ? chalk.yellow(`  ${warnings} warning(s)`) : "");
+      }
+      console.log(chalk.bold("───────────────────────────────────"));
     }
-    console.log(chalk.bold("───────────────────────────────────"));
 
     if (opts.ci && exitCode > 0) process.exit(exitCode);
   });
@@ -500,6 +572,73 @@ program
     );
   });
 
+// --- compare ---
+
+program
+  .command("compare")
+  .description("Show a matrix of env vars across multiple .env files")
+  .argument("<files...>", "Two or more .env files to compare")
+  .option("--json", "Output as JSON")
+  .action((files: string[], opts) => {
+    if (files.length < 2) {
+      console.log(chalk.red("Provide at least two .env files to compare."));
+      process.exit(1);
+    }
+
+    const envMaps: Array<{ name: string; env: Map<string, string> }> = [];
+    for (const file of files) {
+      const resolved = path.resolve(file);
+      if (!fs.existsSync(resolved)) {
+        console.log(chalk.red(`File not found: ${file}`));
+        process.exit(1);
+      }
+      envMaps.push({ name: path.basename(file), env: parseEnvFile(resolved) });
+    }
+
+    const allKeys = new Set<string>();
+    for (const { env } of envMaps) {
+      for (const key of env.keys()) allKeys.add(key);
+    }
+    const sortedKeys = [...allKeys].sort();
+
+    if (opts.json) {
+      const matrix: Record<string, Record<string, string | null>> = {};
+      for (const key of sortedKeys) {
+        matrix[key] = {};
+        for (const { name, env } of envMaps) {
+          const val = env.get(key);
+          matrix[key][name] = val !== undefined ? maskValue(key, val) : null;
+        }
+      }
+      console.log(JSON.stringify({ files: envMaps.map((e) => e.name), variables: sortedKeys.length, matrix }));
+      return;
+    }
+
+    const colWidth = Math.max(12, ...envMaps.map((e) => e.name.length + 2));
+    const keyWidth = Math.max(20, ...sortedKeys.map((k) => k.length + 2));
+
+    const header = chalk.bold("Variable".padEnd(keyWidth)) + envMaps.map((e) => chalk.bold(e.name.padEnd(colWidth))).join("");
+    console.log(header);
+    console.log("─".repeat(keyWidth + colWidth * envMaps.length));
+
+    for (const key of sortedKeys) {
+      const cells = envMaps.map(({ env }) => {
+        const val = env.get(key);
+        if (val === undefined) return chalk.red("✗".padEnd(colWidth));
+        return chalk.green(maskValue(key, val).slice(0, colWidth - 2).padEnd(colWidth));
+      });
+      console.log(key.padEnd(keyWidth) + cells.join(""));
+    }
+
+    console.log("─".repeat(keyWidth + colWidth * envMaps.length));
+    const coverage = envMaps.map(({ name, env }) => {
+      const present = sortedKeys.filter((k) => env.has(k)).length;
+      const pct = Math.round((present / sortedKeys.length) * 100);
+      return `${name}: ${present}/${sortedKeys.length} (${pct}%)`;
+    });
+    console.log(chalk.dim(`Coverage: ${coverage.join("  ·  ")}`));
+  });
+
 // --- audit ---
 
 program
@@ -507,6 +646,7 @@ program
   .description("Generate a full markdown audit report of all environment variables")
   .option("-d, --dir <path>", "Project directory", ".")
   .option("-o, --output <path>", "Output file (default: stdout)")
+  .option("--json", "Output as structured JSON instead of markdown")
   .action((opts) => {
     const cwd = path.resolve(opts.dir);
     const config = loadConfig(cwd);
@@ -519,6 +659,7 @@ program
     });
 
     if (result.variables.length === 0) {
+      if (opts.json) { console.log(JSON.stringify({ variables: [] })); return; }
       console.log(chalk.yellow("No environment variables found."));
       return;
     }
@@ -537,10 +678,37 @@ program
     }
 
     const envValues = envFiles.length > 0 ? parseEnvFile(envFiles[0]) : undefined;
-    const securityIssues = analyzeSecurityIssues(schemas, frameworks, envValues);
+    const securityIssues = analyzeSecurityIssues(schemas, frameworks, envValues, cwd);
 
     const exampleFile = findExampleFile(cwd);
     const sync = exampleFile ? checkExampleSync(schemas, exampleFile) : null;
+
+    if (opts.json) {
+      const jsonReport = {
+        date: new Date().toISOString().split("T")[0],
+        frameworks: frameworks.map((f) => f.name),
+        duration: Math.round(result.duration),
+        variables: schemas.map((s) => ({
+          name: s.name,
+          type: s.type,
+          required: s.required,
+          defaultValue: s.defaultValue ?? null,
+          files: [...new Set(result.variables.filter((u) => u.name === s.name).map((u) => u.filePath))],
+        })),
+        security: securityIssues.map((i) => ({ variable: i.variable, severity: i.severity, rule: i.rule, message: i.message })),
+        validation: [...validations.entries()].map(([file, vr]) => ({ file, valid: vr.valid, missing: vr.missing, typeErrors: vr.typeErrors })),
+        sync: sync ? { inSync: sync.inSync, missingFromExample: sync.missingFromExample, extraInExample: sync.extraInExample } : null,
+      };
+
+      const output = JSON.stringify(jsonReport, null, 2);
+      if (opts.output) {
+        fs.writeFileSync(path.resolve(cwd, opts.output), output, "utf-8");
+        console.log(chalk.green(`JSON audit report written to ${opts.output}`));
+      } else {
+        console.log(output);
+      }
+      return;
+    }
 
     const report = generateAuditReport({
       schemas,
