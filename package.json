@@ -1,7 +1,7 @@
 {
   "name": "envtypes",
   "version": "0.1.0",
-  "description": "Type-safe environment variables. Scan your code, generate schemas, validate .env files.",
+  "description": "Type-safe environment variables. Scans your code, infers types, catches security issues — automatically.",
   "type": "module",
   "bin": {
     "envtypes": "./dist/cli.js"
@@ -23,7 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run lint && npm test && npm run build"
   },
   "keywords": [
     "env",
@@ -33,8 +33,24 @@
     "typescript",
     "validation",
     "dotenv",
-    "schema"
+    "schema",
+    "security",
+    "cli",
+    "developer-tools",
+    "nextjs",
+    "vite",
+    "deno",
+    "bun"
   ],
+  "author": "stulevtoday",
+  "homepage": "https://github.com/stulevtoday/envtypes",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stulevtoday/envtypes.git"
+  },
+  "bugs": {
+    "url": "https://github.com/stulevtoday/envtypes/issues"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=18"

@@ -1,0 +1,86 @@
+{
+  "name": "envtypes-vscode",
+  "displayName": "envtypes",
+  "description": "Type-safe environment variables — inline diagnostics, autocomplete, and security analysis for .env files",
+  "version": "0.1.0",
+  "publisher": "stulevtoday",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stulevtoday/envtypes"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "env",
+    "dotenv",
+    "environment variables",
+    "type-safe",
+    "validation",
+    "security"
+  ],
+  "icon": "icon.png",
+  "activationEvents": [
+    "workspaceContains:**/.env*",
+    "workspaceContains:**/.envtypes.*"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "envtypes.doctor",
+        "title": "envtypes: Run Doctor"
+      },
+      {
+        "command": "envtypes.scan",
+        "title": "envtypes: Scan Environment Variables"
+      },
+      {
+        "command": "envtypes.generate",
+        "title": "envtypes: Generate Typed Module"
+      }
+    ],
+    "configuration": {
+      "title": "envtypes",
+      "properties": {
+        "envtypes.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable envtypes diagnostics"
+        },
+        "envtypes.scanOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Re-scan when .env or source files change"
+        }
+      }
+    },
+    "languages": [
+      {
+        "id": "dotenv",
+        "aliases": ["Environment Variables", "dotenv"],
+        "filenames": [".env", ".env.local", ".env.development", ".env.production", ".env.staging", ".env.test"],
+        "extensions": [".env"],
+        "configuration": "./language-configuration.json"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18",
+    "watch": "npm run build -- --watch",
+    "lint": "tsc --noEmit",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
+  }
+}
