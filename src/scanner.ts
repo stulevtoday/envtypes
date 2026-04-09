@@ -77,10 +77,16 @@ function extractEnvVars(
   const results: EnvVarUsage[] = [];
 
   sourceFile.forEachDescendant((node) => {
-    // process.env.VAR_NAME
     if (node.isKind(SyntaxKind.PropertyAccessExpression)) {
-      const result = matchDotAccess(node, filePath);
-      if (result) results.push(result);
+      // process.env.VAR_NAME
+      const dotResult = matchDotAccess(node, filePath);
+      if (dotResult) { results.push(dotResult); return; }
+
+      // import.meta.env.VAR_NAME (Vite/Astro)
+      const metaResult = matchImportMetaEnv(node, filePath);
+      if (metaResult) { results.push(metaResult); return; }
+
+      // Deno.env.get("VAR") handled below in CallExpression
     }
 
     // process.env['VAR_NAME'] or process.env["VAR_NAME"]
@@ -95,24 +101,20 @@ function extractEnvVars(
       results.push(...found);
     }
 
-    // import.meta.env.VAR_NAME (Vite)
-    if (node.isKind(SyntaxKind.PropertyAccessExpression)) {
-      const result = matchImportMetaEnv(node, filePath);
-      if (result) results.push(result);
+    // Deno.env.get("VAR"), Deno.env.toObject(), Bun.env.VAR
+    if (node.isKind(SyntaxKind.CallExpression)) {
+      const found = matchRuntimeEnvCall(node, filePath);
+      results.push(...found);
     }
   });
 
   return results;
 }
 
-function isProcessEnv(node: Node): boolean {
-  const text = node.getText();
-  return text === "process.env";
-}
-
 function matchDotAccess(node: Node, filePath: string): EnvVarUsage | null {
   const text = node.getText();
-  const match = text.match(/^process\.env\.([A-Z_][A-Z0-9_]*)$/);
+  // process.env.VAR or Bun.env.VAR
+  const match = text.match(/^(?:process|Bun)\.env\.([A-Z_][A-Z0-9_]*)$/);
   if (!match) return null;
 
   const { line, column } = sourcePosition(node);
@@ -131,8 +133,9 @@ function matchDotAccess(node: Node, filePath: string): EnvVarUsage | null {
 
 function matchBracketAccess(node: Node, filePath: string): EnvVarUsage | null {
   const text = node.getText();
+  // process.env["VAR"] or Bun.env["VAR"]
   const match = text.match(
-    /^process\.env\[['"]([A-Z_][A-Z0-9_]*)['"]\]$/
+    /^(?:process|Bun)\.env\[['"]([A-Z_][A-Z0-9_]*)['"]\]$/
   );
   if (!match) return null;
 
@@ -159,7 +162,8 @@ function matchDestructuring(
   if (!declaration) return results;
 
   const initializer = declaration.getInitializer();
-  if (!initializer || initializer.getText() !== "process.env") return results;
+  const initText = initializer?.getText();
+  if (!initText || (initText !== "process.env" && initText !== "Bun.env")) return results;
 
   const nameNode = declaration.getNameNode();
   if (!nameNode.isKind(SyntaxKind.ObjectBindingPattern)) return results;
@@ -206,6 +210,31 @@ function matchImportMetaEnv(
     hasDefault,
     defaultValue,
   };
+}
+
+function matchRuntimeEnvCall(node: Node, filePath: string): EnvVarUsage[] {
+  const results: EnvVarUsage[] = [];
+  const text = node.getText();
+
+  // Deno.env.get("VAR_NAME")
+  const denoMatch = text.match(
+    /^Deno\.env\.get\(\s*['"]([A-Z_][A-Z0-9_]*)['"]\s*\)$/
+  );
+  if (denoMatch) {
+    const { line, column } = sourcePosition(node);
+    const { hasDefault, defaultValue } = detectDefault(node);
+    results.push({
+      name: denoMatch[1],
+      filePath,
+      line,
+      column,
+      accessPattern: "bracket",
+      hasDefault,
+      defaultValue,
+    });
+  }
+
+  return results;
 }
 
 function detectDefault(node: Node): {

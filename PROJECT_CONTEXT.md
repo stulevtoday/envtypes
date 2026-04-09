@@ -52,40 +52,53 @@ The end goal: no Node.js/TypeScript project should ever crash at runtime because
 
 ## Current State
 
-- **Phase**: MVP complete + framework detection + runtime API
+- **Phase**: Feature-complete MVP — ready for npm publish
 - **npm name**: `envtypes` (available, not yet published)
-- **Session**: 1 (continuing)
+- **Session**: 1
 - **What exists**:
-  - 7 source modules: cli, scanner, schema, validator, generator, frameworks, runtime
-  - 52 passing tests across 5 test files
+  - 11 source modules: cli, scanner, schema, validator, generator, frameworks, runtime, security, sync, config, types
+  - 75 passing tests across 8 test files
   - Build working via tsup (ESM + DTS)
   - Framework detection for 7 frameworks
   - Runtime `defineEnv` / `t` builder API
-  - Comprehensive README
+  - Security analysis (client-exposed secrets, weak defaults)
+  - `.env.example` sync checker
+  - Config file support (`.envtypes.json` / package.json field)
+  - Multi-runtime: Node.js, Deno, Bun
+  - `doctor` command — all checks in one pass
+  - Actionable error messages with fix suggestions
 
 ## Architecture
 
 ```
 typenv/                          (local dir name, npm name = envtypes)
 ├── src/
-│   ├── cli.ts                   # CLI entry point (4 commands)
+│   ├── cli.ts                   # CLI entry point (5 commands)
 │   ├── scanner.ts               # AST-based env var discovery (ts-morph)
 │   ├── schema.ts                # Schema generation + .envtypes.ts output
 │   ├── validator.ts             # .env validation against schema
 │   ├── generator.ts             # TypeScript env module + .env.example generation
 │   ├── frameworks.ts            # Framework detection + scope classification
+│   ├── security.ts              # Security analysis (client secrets, weak defaults)
+│   ├── sync.ts                  # .env.example sync checker
+│   ├── config.ts                # Config file loading (.envtypes.json)
 │   ├── runtime.ts               # defineEnv / t builder API (user-facing)
 │   ├── types.ts                 # Shared type definitions
 │   └── index.ts                 # Public API exports
 ├── tests/
 │   ├── scanner.test.ts
+│   ├── scanner-extended.test.ts # Deno/Bun runtime tests
 │   ├── schema.test.ts
 │   ├── validator.test.ts
 │   ├── frameworks.test.ts
 │   ├── runtime.test.ts
+│   ├── security.test.ts
+│   ├── config.test.ts
 │   └── fixtures/
 │       ├── sample-project/      # Basic Node.js project fixture
-│       └── nextjs-project/      # Next.js project fixture
+│       ├── nextjs-project/      # Next.js project fixture
+│       ├── nextjs-security/     # Security issue test fixture
+│       └── multi-runtime/       # Deno + Bun fixture
 ├── PROJECT_CONTEXT.md           # This file
 ├── package.json
 ├── tsconfig.json
@@ -110,6 +123,7 @@ Framework → [Detector] → scope classification (client/server)
 | `envtypes init` | Generate `.envtypes.ts` schema from scan |
 | `envtypes check` | Validate `.env` against schema (supports --ci) |
 | `envtypes generate` | Emit type-safe `env.ts` + `.env.example` |
+| `envtypes doctor` | Run all checks: validation + security + sync |
 
 ### Runtime API
 
@@ -132,15 +146,15 @@ import { scan, generateSchema, validate, parseEnvFile } from "envtypes";
 
 ## Next Steps
 
-- [ ] Publish to npm as 0.1.0 beta (need npm account)
+- [ ] Publish to npm as 0.1.0 (need npm account)
 - [ ] Create GitHub repository
-- [ ] GitHub Action for CI (`envtypes check --ci`)
-- [ ] Watch mode for development
-- [ ] `.env.example` sync check (warn if stale)
-- [ ] Monorepo support (scan specific packages)
-- [ ] Improve scan performance (incremental mode / caching)
-- [ ] Security warnings (client-exposed vars that look like secrets)
+- [ ] GitHub Action for CI (`envtypes check --ci` + `envtypes doctor --ci`)
+- [ ] Watch mode for development (`envtypes watch`)
+- [ ] Monorepo support (scan specific packages, workspace-aware)
+- [ ] Incremental scan mode (cache results, only re-scan changed files)
 - [ ] Website / landing page
+- [ ] VS Code extension (inline diagnostics for .env files)
+- [ ] `envtypes migrate` — import from envalid/znv/t3-env schemas
 
 ## Ideas Backlog
 
@@ -159,15 +173,21 @@ import { scan, generateSchema, validate, parseEnvFile } from "envtypes";
 - Chose project direction: developer tooling, env var management
 - Made architectural decisions (ADR-001 through ADR-005)
 - Built complete MVP: scanner, schema, validator, generator, CLI
-- All 4 CLI commands working: `scan`, `init`, `check`, `generate`
+- All 5 CLI commands: `scan`, `init`, `check`, `generate`, `doctor`
 - AST-based scanner: dot access, bracket access, destructuring, `import.meta.env`
+- Multi-runtime support: Node.js `process.env`, Deno `Deno.env.get()`, Bun `Bun.env`
 - Type inference from naming conventions: ports, URLs, booleans, numbers, enums
 - Default value detection from `||`, `??`, and destructuring defaults
 - Framework detection: Next.js, Vite, Astro, Remix, Nuxt, CRA, Expo
 - Scope classification: client-exposed vs server-only variables
+- Security analysis: client-exposed secrets, weak defaults, connection string leaks
+- `.env.example` sync checker
+- Config file support: `.envtypes.json` and package.json `envtypes` field
+- Schema overrides and ignore lists
 - Runtime API: `defineEnv` + `t` builder with full type inference
 - Generated modules include runtime validation + enum checking
 - Smart `.env.example` with context-aware URL examples
-- Build via tsup (ESM + DTS), 52/52 tests passing
+- Actionable error messages: suggest values, expected types, fix instructions
+- Build via tsup (ESM + DTS), 75/75 tests passing across 8 test files
 - Renamed from typenv to envtypes (npm availability)
-- Git repo initialized, 2 commits
+- Git repo initialized, ready for publish

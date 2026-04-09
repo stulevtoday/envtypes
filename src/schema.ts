@@ -1,4 +1,5 @@
 import type { EnvVarUsage, EnvVarSchema, InferredType } from "./types.js";
+import type { EnvtypesConfig } from "./config.js";
 
 const TYPE_HINTS: Record<string, InferredType> = {
   PORT: "port",
@@ -65,10 +66,22 @@ export function inferType(name: string, defaultValue?: string): InferredType {
   return "string";
 }
 
-export function generateSchema(usages: EnvVarUsage[]): EnvVarSchema[] {
+export interface SchemaOptions {
+  ignore?: string[];
+  overrides?: EnvtypesConfig["overrides"];
+}
+
+export function generateSchema(
+  usages: EnvVarUsage[],
+  options: SchemaOptions = {}
+): EnvVarSchema[] {
+  const ignoreSet = new Set(options.ignore ?? []);
+  const overrides = options.overrides ?? {};
+
   const grouped = new Map<string, EnvVarUsage[]>();
 
   for (const usage of usages) {
+    if (ignoreSet.has(usage.name)) continue;
     const existing = grouped.get(usage.name) ?? [];
     existing.push(usage);
     grouped.set(usage.name, existing);
@@ -79,17 +92,19 @@ export function generateSchema(usages: EnvVarUsage[]): EnvVarSchema[] {
   for (const [name, instances] of grouped) {
     const anyHasDefault = instances.some((i) => i.hasDefault);
     const firstDefault = instances.find((i) => i.defaultValue)?.defaultValue;
-    const type = inferType(name, firstDefault);
+    const override = overrides[name];
+    const type = override?.type ?? inferType(name, firstDefault);
 
     const schema: EnvVarSchema = {
       name,
       type,
-      required: !anyHasDefault,
+      required: override?.required ?? !anyHasDefault,
       defaultValue: firstDefault,
+      description: override?.description,
     };
 
-    if (type === "enum" && KNOWN_ENUMS[name]) {
-      schema.enumValues = KNOWN_ENUMS[name];
+    if (type === "enum") {
+      schema.enumValues = override?.enumValues ?? KNOWN_ENUMS[name];
     }
 
     schemas.push(schema);
