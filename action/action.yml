@@ -1,0 +1,75 @@
+name: 'envtypes'
+description: 'Validate environment variables against your codebase. Catch missing, mistyped, and insecure env vars in CI.'
+author: 'envtypes'
+
+branding:
+  icon: 'shield'
+  color: 'green'
+
+inputs:
+  working-directory:
+    description: 'Project directory to scan'
+    required: false
+    default: '.'
+  command:
+    description: 'Command to run: check, doctor, scan'
+    required: false
+    default: 'doctor'
+  env-file:
+    description: 'Specific .env file to validate'
+    required: false
+  fail-on-warning:
+    description: 'Fail the action on warnings (not just errors)'
+    required: false
+    default: 'false'
+
+outputs:
+  issues:
+    description: 'Number of issues found'
+  critical:
+    description: 'Number of critical issues'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Install envtypes
+      shell: bash
+      run: npm install -g envtypes
+
+    - name: Run envtypes
+      id: envtypes
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set +e
+        if [ "${{ inputs.command }}" = "check" ]; then
+          ARGS="check --ci"
+          if [ -n "${{ inputs.env-file }}" ]; then
+            ARGS="$ARGS --env ${{ inputs.env-file }}"
+          fi
+        elif [ "${{ inputs.command }}" = "doctor" ]; then
+          ARGS="doctor --ci"
+        else
+          ARGS="${{ inputs.command }}"
+        fi
+
+        OUTPUT=$(envtypes $ARGS 2>&1)
+        EXIT_CODE=$?
+
+        echo "$OUTPUT"
+
+        # Write to GitHub step summary
+        echo "## envtypes report" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "$OUTPUT" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+        if [ $EXIT_CODE -ne 0 ]; then
+          echo "::error::envtypes found issues in your environment configuration"
+          exit 1
+        fi

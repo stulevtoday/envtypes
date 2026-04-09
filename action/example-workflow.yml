@@ -1,0 +1,26 @@
+# Example: .github/workflows/envtypes.yml
+#
+# Add this to your repository to validate env vars on every PR.
+
+name: Environment Validation
+
+on:
+  pull_request:
+    paths:
+      - '**/*.ts'
+      - '**/*.tsx'
+      - '**/*.js'
+      - '**/*.jsx'
+      - '.env*'
+      - '.envtypes.json'
+
+jobs:
+  envtypes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate environment variables
+        uses: your-org/envtypes-action@v1
+        with:
+          command: doctor

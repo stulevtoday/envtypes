@@ -2,147 +2,63 @@
 
 Type-safe environment variables for TypeScript projects.
 
-**envtypes** scans your codebase, finds every `process.env` reference, and generates typed schemas, validation, and a type-safe access module — automatically.
+**envtypes** scans your codebase, finds every environment variable reference, and generates typed schemas, validation, and a type-safe access module — automatically.
 
-## The Problem
+## Why envtypes?
 
-```ts
-const port = Number(process.env.PORT);
-const dbUrl = process.env.DATABASE_URL; // string | undefined — good luck
-
-// Then in production:
-// TypeError: Cannot read properties of undefined
-// Because someone forgot to set DATABASE_URL
-```
-
-Every project has environment variables scattered across files with no validation, no types, and no documentation. New developers ask "which env vars do I need?" and nobody has a definitive answer.
-
-## The Solution
+Existing tools (envalid, znv, t3-env) require you to manually define schemas. **envtypes reads your code** — it discovers what you actually use, infers types from naming conventions, detects frameworks, and catches security issues.
 
 ```bash
-npx envtypes scan        # Find all env vars in your code
-npx envtypes check       # Validate your .env files
-npx envtypes generate    # Emit a type-safe env module
+npx envtypes doctor
 ```
 
-**envtypes** reads your code (not your config), discovers every environment variable reference, infers types from naming conventions, and generates everything you need.
+```
+Framework: next
+Scanning /path/to/project
+
+Found 12 variables in 8 files (45ms)
+
+Validation
+  ✓ .env
+
+Security
+  ✗ CRITICAL NEXT_PUBLIC_API_SECRET is client-exposed but contains "SECRET"
+    → Move the secret to a server-only variable without the client prefix
+  ! WARNING JWT_SECRET has a weak or placeholder default value
+    → Remove the default and require explicit configuration
+
+Sync
+  ✓ .env.example is in sync
+
+───────────────────────────────────
+  1 critical issue(s)   1 warning(s)
+───────────────────────────────────
+```
 
 ## Quick Start
 
 ```bash
 npm install -D envtypes
 
-# See what env vars your project uses
-npx envtypes scan
-
-# Validate your .env against what code actually needs
-npx envtypes check
-
-# Generate a typed env module + .env.example
-npx envtypes generate
+npx envtypes scan         # Find all env vars in your code
+npx envtypes check        # Validate your .env files
+npx envtypes doctor       # Run all checks at once
+npx envtypes generate     # Emit a typed env module + .env.example
 ```
 
-## What It Generates
+## Features
 
-Given a codebase that uses `process.env.PORT`, `process.env.DATABASE_URL`, `process.env.NODE_ENV`, and `process.env.DEBUG`:
+- **AST scanning** — Finds `process.env`, `import.meta.env`, `Deno.env.get()`, `Bun.env` references
+- **Type inference** — `*_PORT` → port, `*_URL` → URL, `DEBUG` → boolean, `NODE_ENV` → enum
+- **Framework detection** — Next.js, Vite, Astro, Remix, Nuxt, CRA, Expo
+- **Scope analysis** — Classifies vars as client-exposed or server-only
+- **Security analysis** — Catches leaked secrets, weak defaults, exposed DB connections
+- **Config file** — `.envtypes.json` for project-specific settings
+- **Watch mode** — Continuous validation during development
+- **Audit reports** — Full markdown report for docs and compliance
+- **Env diff** — Compare `.env` files across environments with auto-masked secrets
 
-### Type-safe access module (`env.ts`)
-
-```ts
-export interface Env {
-  DATABASE_URL: string;
-  NODE_ENV: "development" | "production" | "test" | "staging";
-  DEBUG?: boolean;
-  PORT?: number;
-}
-
-function loadEnv(): Env {
-  const missing: string[] = [];
-  if (!process.env.DATABASE_URL) missing.push("DATABASE_URL");
-  if (!process.env.NODE_ENV) missing.push("NODE_ENV");
-
-  if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
-  }
-
-  return {
-    DATABASE_URL: process.env.DATABASE_URL!,
-    NODE_ENV: process.env.NODE_ENV!,
-    DEBUG: process.env.DEBUG
-      ? ["true", "1", "yes"].includes(process.env.DEBUG.toLowerCase())
-      : undefined,
-    PORT: Number(process.env.PORT ?? "3000"),
-  };
-}
-
-export const env = loadEnv();
-```
-
-### Runtime schema (`.envtypes.ts`)
-
-Or define your schema explicitly for full control:
-
-```ts
-import { defineEnv, t } from "envtypes";
-
-export default defineEnv({
-  DATABASE_URL: t.url(),
-  NODE_ENV: t.enum(["development", "production", "test"]),
-  PORT: t.port().default("3000"),
-  DEBUG: t.boolean().optional(),
-  API_KEY: t.string(),
-});
-```
-
-### `.env.example`
-
-```bash
-# Required
-DATABASE_URL=postgres://user:password@localhost:5432/dbname
-NODE_ENV=development
-API_KEY=your_api_key
-
-# Optional
-# DEBUG=true
-# PORT=3000 (default: 3000)
-```
-
-## How It Works
-
-1. **Scans** your code using AST analysis — finds `process.env.X`, `process.env['X']`, `const { X } = process.env`, and `import.meta.env.X`
-2. **Infers types** from naming conventions — `*_PORT` → number, `*_URL` → URL validation, `DEBUG` → boolean, `NODE_ENV` → enum
-3. **Detects defaults** from `||` and `??` operators and destructuring defaults
-4. **Detects frameworks** — Next.js, Vite, Astro, Remix, Nuxt, CRA, Expo — and classifies vars as client-exposed or server-only
-5. **Validates** your `.env` files against what your code actually uses
-6. **Generates** a type-safe module that fails fast on startup if required vars are missing
-
-## Framework Detection
-
-envtypes automatically detects your framework and classifies variables:
-
-```
-$ npx envtypes scan
-Framework: next
-Scanning /path/to/project
-
-Found 5 unique variables in 3 files (45ms)
-
-Required:
-  NEXT_PUBLIC_API_URL [client]
-    src/lib/api.ts:3
-  DATABASE_URL [server]
-    src/lib/db.ts:1
-  SECRET_KEY [server]
-    src/lib/auth.ts:5
-
-Scope analysis:
-  Client-exposed (1): NEXT_PUBLIC_API_URL
-  Server-only (2): DATABASE_URL, SECRET_KEY
-```
-
-Supported frameworks: Next.js, Vite, Astro, Remix, Nuxt, Create React App, Expo.
-
-## CLI Commands
+## Commands
 
 ### `envtypes scan`
 
@@ -156,21 +72,96 @@ envtypes scan --json           # Output as JSON
 
 ### `envtypes check`
 
-Validate `.env` files against your codebase.
+Validate `.env` files against your codebase with actionable error messages.
 
 ```bash
 envtypes check                    # Check all .env files
 envtypes check --env .env.prod    # Check specific file
-envtypes check --ci               # Exit code 1 on errors (for CI)
+envtypes check --ci               # Exit code 1 on errors
+```
+
+When errors are found, envtypes suggests fixes:
+
+```
+.env.production
+  ✗ DATABASE_URL — missing (required)
+    add: DATABASE_URL=https://...
+  ✗ PORT should be a valid port (0-65535), got "not-a-number"
+    expected: integer 0-65535
+  ? LEGACY_FLAG — defined but not referenced in code
+    safe to remove, or add to "ignore" in .envtypes.json
+```
+
+### `envtypes doctor`
+
+Run all checks in one pass: validation, security, and `.env.example` sync.
+
+```bash
+envtypes doctor          # Full health check
+envtypes doctor --ci     # Fail on critical issues
 ```
 
 ### `envtypes generate`
 
-Generate type-safe env access module and `.env.example`.
+Generate a type-safe env access module and `.env.example`.
 
 ```bash
-envtypes generate                        # Default: generates src/env.ts
-envtypes generate --output lib/config.ts # Custom output path
+envtypes generate                        # Default: src/env.ts
+envtypes generate --output lib/config.ts # Custom path
+envtypes generate --no-example           # Skip .env.example
+```
+
+### `envtypes diff`
+
+Compare `.env` files across environments. Sensitive values are automatically masked.
+
+```bash
+envtypes diff .env .env.staging
+```
+
+```
+Comparing .env ↔ .env.staging
+
+Only in .env:
+  - LOCAL_SETTING
+
+Different values:
+  API_KEY
+    .env: sk*********yz
+    .env.staging: sk*********ab
+  DATABASE_URL
+    .env: postgres://localhost:5432/db
+    .env.staging: postgres://staging.example.com/db
+  NODE_ENV
+    .env: development
+    .env.staging: staging
+
+1 identical · 3 different · 1 only in .env · 0 only in .env.staging
+```
+
+### `envtypes audit`
+
+Generate a comprehensive markdown report of all environment variables — useful for documentation, onboarding, and compliance.
+
+```bash
+envtypes audit                     # Print to stdout
+envtypes audit -o ENV_AUDIT.md     # Write to file
+```
+
+### `envtypes watch`
+
+Continuously watch for changes and validate in real-time.
+
+```bash
+envtypes watch
+```
+
+```
+Watching /path/to/project (Ctrl+C to stop)
+
+[14:23:01] 12 variables · all good (45ms)
+[14:23:15] File changed, re-scanning...
+[14:23:15] 13 variables · 1 error(s) (38ms)
 ```
 
 ### `envtypes init`
@@ -182,44 +173,126 @@ envtypes init              # Generates .envtypes.ts
 envtypes init --force      # Overwrite existing
 ```
 
-## Type Inference
+## Runtime API
 
-envtypes infers types from variable names:
+Use `defineEnv` and `t` builders for runtime validation with full TypeScript inference:
+
+```ts
+import { defineEnv, t } from "envtypes";
+
+const env = defineEnv({
+  PORT: t.port().default("3000"),
+  DATABASE_URL: t.url(),
+  NODE_ENV: t.enum(["development", "production", "test"]),
+  DEBUG: t.boolean().optional(),
+  API_KEY: t.string(),
+});
+
+// env.PORT    → number
+// env.DEBUG   → boolean | undefined
+// env.NODE_ENV → "development" | "production" | "test"
+```
+
+Throws on startup with all errors at once:
+
+```
+Error: Environment validation failed:
+  - DATABASE_URL: Expected valid URL, got "not-a-url"
+  - API_KEY: Required but not provided
+```
+
+## Type Inference
 
 | Pattern | Inferred Type | Examples |
 |---------|--------------|---------|
 | `*_PORT` | port (0-65535) | `PORT`, `DB_PORT` |
-| `*_URL`, `*_URI` | URL | `DATABASE_URL`, `API_URL` |
+| `*_URL`, `*_URI` | URL | `DATABASE_URL`, `REDIS_URL` |
 | `DEBUG`, `ENABLE_*`, `IS_*`, `USE_*` | boolean | `DEBUG`, `ENABLE_CACHE` |
 | `*_COUNT`, `*_SIZE`, `*_TIMEOUT`, `*_TTL` | number | `MAX_RETRIES`, `CACHE_TTL` |
 | `NODE_ENV` | enum | `development`, `production`, `test` |
 | Everything else | string | `API_KEY`, `SECRET_TOKEN` |
 
-## Programmatic API
+## Framework Detection
 
-```ts
-import { scan, generateSchema, validate, parseEnvFile } from "envtypes";
+Automatically detects your framework and classifies variables by scope:
 
-const result = scan({ cwd: "/path/to/project" });
-const schemas = generateSchema(result.variables);
-const envValues = parseEnvFile("/path/to/.env");
-const validation = validate(schemas, envValues);
+| Framework | Client Prefix | Detection |
+|-----------|---------------|-----------|
+| Next.js | `NEXT_PUBLIC_` | `next` in deps |
+| Vite | `VITE_` | `vite` in deps |
+| Astro | `PUBLIC_` | `astro` in deps |
+| Nuxt | `NUXT_PUBLIC_` | `nuxt` in deps |
+| CRA | `REACT_APP_` | `react-scripts` in deps |
+| Expo | `EXPO_PUBLIC_` | `expo` in deps |
+| Remix | — | `@remix-run/*` in deps |
 
-if (!validation.valid) {
-  console.error("Missing:", validation.missing);
-  console.error("Type errors:", validation.typeErrors);
+## Security Analysis
+
+envtypes catches common security mistakes:
+
+- **Client-exposed secrets** — `NEXT_PUBLIC_API_SECRET` contains "SECRET" but is browser-visible
+- **Leaked connection strings** — `VITE_DATABASE_URL` exposes database credentials to the client
+- **Weak defaults** — `JWT_SECRET` defaults to `"changeme"` or short placeholder values
+- **Known credential patterns** — Detects `AWS_SECRET_ACCESS_KEY`, `STRIPE_SECRET_KEY`, etc.
+
+## Configuration
+
+Create `.envtypes.json` in your project root, or add an `envtypes` field to `package.json`:
+
+```json
+{
+  "include": ["src/**/*.ts", "lib/**/*.ts"],
+  "exclude": ["**/*.test.*"],
+  "output": "src/env.ts",
+  "ignore": ["LEGACY_VAR", "DEPRECATED_FLAG"],
+  "overrides": {
+    "CUSTOM_PORT": { "type": "port" },
+    "LOG_LEVEL": {
+      "type": "enum",
+      "enumValues": ["debug", "info", "warn", "error"]
+    }
+  }
 }
 ```
 
 ## CI Integration
 
-Add to your CI pipeline to catch missing env vars before deployment:
+### Direct
 
 ```yaml
-# GitHub Actions
 - name: Validate environment
-  run: npx envtypes check --ci
+  run: npx envtypes doctor --ci
 ```
+
+### GitHub Action
+
+```yaml
+- uses: your-org/envtypes-action@v1
+  with:
+    command: doctor
+```
+
+## Programmatic API
+
+```ts
+import {
+  scan,
+  generateSchema,
+  validate,
+  parseEnvFile,
+  detectFrameworks,
+  analyzeSecurityIssues,
+  defineEnv,
+  t,
+} from "envtypes";
+```
+
+## Supported Runtimes
+
+- **Node.js** — `process.env.VAR`, `process.env['VAR']`, `const { VAR } = process.env`
+- **Deno** — `Deno.env.get("VAR")`
+- **Bun** — `Bun.env.VAR`, `Bun.env['VAR']`, `const { VAR } = Bun.env`
+- **Vite/Astro** — `import.meta.env.VAR`
 
 ## License
 

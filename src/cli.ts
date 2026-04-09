@@ -10,6 +10,8 @@ import { detectFrameworks, classifyVariable } from "./frameworks.js";
 import { analyzeSecurityIssues } from "./security.js";
 import { checkExampleSync, findExampleFile } from "./sync.js";
 import { loadConfig, generateConfigFile } from "./config.js";
+import { watch as startWatch } from "./watcher.js";
+import { generateAuditReport } from "./audit.js";
 import type { EnvVarUsage, EnvVarSchema } from "./types.js";
 import type { FrameworkInfo } from "./frameworks.js";
 
@@ -431,6 +433,185 @@ program
     if (opts.ci && exitCode > 0) process.exit(exitCode);
   });
 
+// --- diff ---
+
+program
+  .command("diff <file1> <file2>")
+  .description("Compare two .env files and show differences")
+  .action((file1: string, file2: string) => {
+    const env1 = parseEnvFile(path.resolve(file1));
+    const env2 = parseEnvFile(path.resolve(file2));
+    const name1 = path.basename(file1);
+    const name2 = path.basename(file2);
+
+    const allKeys = new Set([...env1.keys(), ...env2.keys()]);
+    const onlyIn1: string[] = [];
+    const onlyIn2: string[] = [];
+    const different: { key: string; val1: string; val2: string }[] = [];
+    let same = 0;
+
+    for (const key of [...allKeys].sort()) {
+      const v1 = env1.get(key);
+      const v2 = env2.get(key);
+
+      if (v1 !== undefined && v2 === undefined) {
+        onlyIn1.push(key);
+      } else if (v1 === undefined && v2 !== undefined) {
+        onlyIn2.push(key);
+      } else if (v1 !== v2) {
+        different.push({ key, val1: v1!, val2: v2! });
+      } else {
+        same++;
+      }
+    }
+
+    console.log(chalk.bold(`Comparing ${name1} ↔ ${name2}\n`));
+
+    if (onlyIn1.length > 0) {
+      console.log(chalk.red(`Only in ${name1}:`));
+      for (const key of onlyIn1) {
+        console.log(chalk.red(`  - ${key}`));
+      }
+      console.log();
+    }
+
+    if (onlyIn2.length > 0) {
+      console.log(chalk.green(`Only in ${name2}:`));
+      for (const key of onlyIn2) {
+        console.log(chalk.green(`  + ${key}`));
+      }
+      console.log();
+    }
+
+    if (different.length > 0) {
+      console.log(chalk.yellow("Different values:"));
+      for (const { key, val1, val2 } of different) {
+        const masked1 = maskValue(key, val1);
+        const masked2 = maskValue(key, val2);
+        console.log(`  ${chalk.bold(key)}`);
+        console.log(chalk.red(`    ${name1}: ${masked1}`));
+        console.log(chalk.green(`    ${name2}: ${masked2}`));
+      }
+      console.log();
+    }
+
+    console.log(
+      chalk.dim(`${same} identical · ${different.length} different · ${onlyIn1.length} only in ${name1} · ${onlyIn2.length} only in ${name2}`)
+    );
+  });
+
+// --- audit ---
+
+program
+  .command("audit")
+  .description("Generate a full markdown audit report of all environment variables")
+  .option("-d, --dir <path>", "Project directory", ".")
+  .option("-o, --output <path>", "Output file (default: stdout)")
+  .action((opts) => {
+    const cwd = path.resolve(opts.dir);
+    const config = loadConfig(cwd);
+    const { detected: frameworks } = detectFrameworks(cwd);
+
+    const result = scan({
+      cwd,
+      include: config.include,
+      exclude: config.exclude,
+    });
+
+    if (result.variables.length === 0) {
+      console.log(chalk.yellow("No environment variables found."));
+      return;
+    }
+
+    const schemas = generateSchema(result.variables, {
+      ignore: config.ignore,
+      overrides: config.overrides,
+    });
+
+    const envFiles = findEnvFiles(cwd);
+    const validations = new Map<string, ReturnType<typeof validate>>();
+    for (const envFile of envFiles) {
+      const fileName = path.relative(cwd, envFile);
+      const values = parseEnvFile(envFile);
+      validations.set(fileName, validate(schemas, values));
+    }
+
+    const envValues = envFiles.length > 0 ? parseEnvFile(envFiles[0]) : undefined;
+    const securityIssues = analyzeSecurityIssues(schemas, frameworks, envValues);
+
+    const exampleFile = findExampleFile(cwd);
+    const sync = exampleFile ? checkExampleSync(schemas, exampleFile) : null;
+
+    const report = generateAuditReport({
+      schemas,
+      usages: result.variables,
+      frameworks,
+      securityIssues,
+      validations,
+      sync,
+      scanDuration: result.duration,
+    });
+
+    if (opts.output) {
+      const outPath = path.resolve(cwd, opts.output);
+      fs.writeFileSync(outPath, report, "utf-8");
+      console.log(chalk.green(`Audit report written to ${opts.output}`));
+    } else {
+      console.log(report);
+    }
+  });
+
+// --- watch ---
+
+program
+  .command("watch")
+  .description("Watch for changes and validate continuously")
+  .option("-d, --dir <path>", "Project directory", ".")
+  .action((opts) => {
+    const cwd = path.resolve(opts.dir);
+    console.log(chalk.blue("Watching"), cwd, chalk.dim("(Ctrl+C to stop)\n"));
+
+    let firstRun = true;
+
+    const watcher = startWatch({
+      cwd,
+      onResult(report) {
+        const time = new Date().toLocaleTimeString();
+        const varCount = chalk.green(String(report.totalVariables));
+        const errors = report.validationErrors;
+        const security = report.securityIssues;
+
+        if (!firstRun) {
+          console.log(chalk.dim(`\n[${time}] File changed, re-scanning...`));
+        }
+        firstRun = false;
+
+        const parts = [`${varCount} variables`];
+        if (errors > 0) {
+          parts.push(chalk.red(`${errors} error(s)`));
+        }
+        if (security > 0) {
+          parts.push(chalk.red(`${security} critical`));
+        }
+        if (errors === 0 && security === 0) {
+          parts.push(chalk.green("all good"));
+        }
+
+        console.log(
+          chalk.dim(`[${time}]`),
+          parts.join(chalk.dim(" · ")),
+          chalk.dim(`(${Math.round(report.scan.duration)}ms)`)
+        );
+      },
+    });
+
+    process.on("SIGINT", () => {
+      watcher.close();
+      console.log(chalk.dim("\nStopped watching."));
+      process.exit(0);
+    });
+  });
+
 // --- helpers ---
 
 function suggestValue(schema: EnvVarSchema): string {
@@ -453,6 +634,18 @@ function describeExpectedType(schema: EnvVarSchema): string {
     case "enum": return `one of: ${schema.enumValues?.join(", ") ?? ""}`;
     case "string": return "any string";
   }
+}
+
+function maskValue(key: string, value: string): string {
+  const sensitiveHints = [
+    "SECRET", "PASSWORD", "TOKEN", "KEY", "PRIVATE",
+    "CREDENTIAL", "AUTH",
+  ];
+  const isSensitive = sensitiveHints.some((h) => key.toUpperCase().includes(h));
+
+  if (!isSensitive) return value;
+  if (value.length <= 4) return "****";
+  return value.slice(0, 2) + "*".repeat(Math.min(value.length - 4, 20)) + value.slice(-2);
 }
 
 function groupByName(usages: EnvVarUsage[]): Map<string, EnvVarUsage[]> {

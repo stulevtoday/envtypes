@@ -52,28 +52,32 @@ The end goal: no Node.js/TypeScript project should ever crash at runtime because
 
 ## Current State
 
-- **Phase**: Feature-complete MVP — ready for npm publish
+- **Phase**: Feature-complete — ready for npm publish and GitHub
 - **npm name**: `envtypes` (available, not yet published)
 - **Session**: 1
 - **What exists**:
-  - 11 source modules: cli, scanner, schema, validator, generator, frameworks, runtime, security, sync, config, types
+  - 14 source modules: cli, scanner, schema, validator, generator, frameworks, runtime, security, sync, config, watcher, audit, types, index
   - 75 passing tests across 8 test files
   - Build working via tsup (ESM + DTS)
+  - 8 CLI commands: scan, init, check, generate, doctor, audit, diff, watch
   - Framework detection for 7 frameworks
   - Runtime `defineEnv` / `t` builder API
   - Security analysis (client-exposed secrets, weak defaults)
   - `.env.example` sync checker
   - Config file support (`.envtypes.json` / package.json field)
-  - Multi-runtime: Node.js, Deno, Bun
-  - `doctor` command — all checks in one pass
-  - Actionable error messages with fix suggestions
+  - Multi-runtime: Node.js, Deno, Bun, Vite/Astro
+  - Watch mode for continuous development validation
+  - Markdown audit report generator
+  - Env diff with automatic secret masking
+  - GitHub Action ready (action.yml)
+  - Comprehensive README with all features documented
 
 ## Architecture
 
 ```
 typenv/                          (local dir name, npm name = envtypes)
 ├── src/
-│   ├── cli.ts                   # CLI entry point (5 commands)
+│   ├── cli.ts                   # CLI entry point (8 commands)
 │   ├── scanner.ts               # AST-based env var discovery (ts-morph)
 │   ├── schema.ts                # Schema generation + .envtypes.ts output
 │   ├── validator.ts             # .env validation against schema
@@ -82,6 +86,8 @@ typenv/                          (local dir name, npm name = envtypes)
 │   ├── security.ts              # Security analysis (client secrets, weak defaults)
 │   ├── sync.ts                  # .env.example sync checker
 │   ├── config.ts                # Config file loading (.envtypes.json)
+│   ├── watcher.ts               # File watcher for continuous validation
+│   ├── audit.ts                 # Markdown audit report generator
 │   ├── runtime.ts               # defineEnv / t builder API (user-facing)
 │   ├── types.ts                 # Shared type definitions
 │   └── index.ts                 # Public API exports
@@ -121,9 +127,12 @@ Framework → [Detector] → scope classification (client/server)
 |---------|-------------|
 | `envtypes scan` | Discover env vars, show report with framework scope |
 | `envtypes init` | Generate `.envtypes.ts` schema from scan |
-| `envtypes check` | Validate `.env` against schema (supports --ci) |
+| `envtypes check` | Validate `.env` against schema (--ci for CI) |
 | `envtypes generate` | Emit type-safe `env.ts` + `.env.example` |
 | `envtypes doctor` | Run all checks: validation + security + sync |
+| `envtypes audit` | Full markdown report for docs/compliance |
+| `envtypes diff` | Compare .env files with auto-masked secrets |
+| `envtypes watch` | Continuous validation on file changes |
 
 ### Runtime API
 
@@ -146,15 +155,16 @@ import { scan, generateSchema, validate, parseEnvFile } from "envtypes";
 
 ## Next Steps
 
-- [ ] Publish to npm as 0.1.0 (need npm account)
-- [ ] Create GitHub repository
-- [ ] GitHub Action for CI (`envtypes check --ci` + `envtypes doctor --ci`)
-- [ ] Watch mode for development (`envtypes watch`)
+- [ ] Publish to npm as 0.1.0 (need npm account from user)
+- [ ] Create GitHub repository (user will set up)
 - [ ] Monorepo support (scan specific packages, workspace-aware)
 - [ ] Incremental scan mode (cache results, only re-scan changed files)
 - [ ] Website / landing page
 - [ ] VS Code extension (inline diagnostics for .env files)
 - [ ] `envtypes migrate` — import from envalid/znv/t3-env schemas
+- [ ] `envtypes compare` — cross-environment matrix (dev/staging/prod)
+- [ ] JSON/YAML output for `doctor` and `check` (machine-readable)
+- [ ] Pre-commit hook integration
 
 ## Ideas Backlog
 
@@ -191,3 +201,9 @@ import { scan, generateSchema, validate, parseEnvFile } from "envtypes";
 - Build via tsup (ESM + DTS), 75/75 tests passing across 8 test files
 - Renamed from typenv to envtypes (npm availability)
 - Git repo initialized, ready for publish
+- Added: GitHub Action (action.yml + example workflow)
+- Added: watch mode — continuous validation on file changes
+- Added: audit command — full markdown report with usage map
+- Added: diff command — compare .env files, auto-mask secrets
+- Updated README with complete feature documentation
+- Build: 75 tests pass, tsup ESM+DTS builds clean, 4 commits
