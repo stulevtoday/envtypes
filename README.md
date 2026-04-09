@@ -59,7 +59,7 @@ One command. No config. Instant report.
 ## Install
 
 ```bash
-npm install -D envtypes
+npm install -D @stulevtoday/envtypes
 ```
 
 ## Commands
@@ -87,7 +87,7 @@ Every command that outputs text supports `--json` for CI pipelines.
 Type-safe env access with full TypeScript inference:
 
 ```ts
-import { defineEnv, t } from "envtypes";
+import { defineEnv, t } from "@stulevtoday/envtypes";
 
 const env = defineEnv({
   PORT:          t.port().default("3000"),
@@ -297,7 +297,7 @@ Optional. Create `.envtypes.json` or add `"envtypes"` to `package.json`:
 ## Programmatic API
 
 ```ts
-import { scan, generateSchema, validate, parseEnvFile, detectFrameworks, analyzeSecurityIssues, defineEnv, t } from "envtypes";
+import { scan, generateSchema, validate, parseEnvFile, detectFrameworks, analyzeSecurityIssues, defineEnv, t } from "@stulevtoday/envtypes";
 ```
 
 ---

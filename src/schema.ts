@@ -123,7 +123,7 @@ export function generateSchema(
 
 export function schemaToTypenvFile(schemas: EnvVarSchema[]): string {
   const lines: string[] = [
-    `import { defineEnv, t } from "envtypes";`,
+    `import { defineEnv, t } from "@stulevtoday/envtypes";`,
     "",
     "export default defineEnv({",
   ];

@@ -1,5 +1,5 @@
 {
-  "name": "envtypes",
+  "name": "@stulevtoday/envtypes",
   "version": "0.1.0",
   "description": "Type-safe environment variables. Scans your code, infers types, catches security issues — automatically.",
   "type": "module",
