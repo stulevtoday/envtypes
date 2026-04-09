@@ -1,10 +1,10 @@
 {
-  "name": "typenv",
+  "name": "envtypes",
   "version": "0.1.0",
   "description": "Type-safe environment variables. Scan your code, generate schemas, validate .env files.",
   "type": "module",
   "bin": {
-    "typenv": "./dist/cli.js"
+    "envtypes": "./dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

@@ -6,12 +6,14 @@ import { scan } from "./scanner.js";
 import { generateSchema, schemaToTypenvFile } from "./schema.js";
 import { validate, parseEnvFile, findEnvFiles } from "./validator.js";
 import { generateEnvModule, generateEnvExample } from "./generator.js";
+import { detectFrameworks, classifyVariable } from "./frameworks.js";
 import type { EnvVarUsage, EnvVarSchema } from "./types.js";
+import type { FrameworkInfo } from "./frameworks.js";
 
 const program = new Command();
 
 program
-  .name("typenv")
+  .name("envtypes")
   .description("Type-safe environment variables. Scan code, generate schemas, validate .env files.")
   .version("0.1.0");
 
@@ -24,6 +26,12 @@ program
   .option("--json", "Output as JSON")
   .action((opts) => {
     const cwd = path.resolve(opts.dir);
+    const { detected: frameworks } = detectFrameworks(cwd);
+
+    if (frameworks.length > 0) {
+      const names = frameworks.map((f) => chalk.cyan(f.name)).join(", ");
+      console.log(chalk.blue("Framework:"), names);
+    }
     console.log(chalk.blue("Scanning"), cwd, "\n");
 
     const result = scan({ cwd });
@@ -56,7 +64,7 @@ program
     if (required.length > 0) {
       console.log(chalk.red.bold("Required:"));
       for (const [name, usages] of required) {
-        printVariable(name, usages);
+        printVariable(name, usages, frameworks);
       }
       console.log();
     }
@@ -64,7 +72,31 @@ program
     if (optional.length > 0) {
       console.log(chalk.yellow.bold("Optional (has defaults):"));
       for (const [name, usages] of optional) {
-        printVariable(name, usages);
+        printVariable(name, usages, frameworks);
+      }
+    }
+
+    if (frameworks.length > 0) {
+      const clientVars = [...grouped.keys()].filter(
+        (n) => classifyVariable(n, frameworks) === "client"
+      );
+      const serverVars = [...grouped.keys()].filter(
+        (n) => classifyVariable(n, frameworks) === "server"
+      );
+      if (clientVars.length > 0 || serverVars.length > 0) {
+        console.log(chalk.bold("\nScope analysis:"));
+        if (clientVars.length > 0) {
+          console.log(
+            chalk.cyan(`  Client-exposed (${clientVars.length}):`),
+            clientVars.join(", ")
+          );
+        }
+        if (serverVars.length > 0) {
+          console.log(
+            chalk.magenta(`  Server-only (${serverVars.length}):`),
+            serverVars.join(", ")
+          );
+        }
       }
     }
   });
@@ -73,9 +105,9 @@ program
 
 program
   .command("init")
-  .description("Generate a .typenv.ts schema from scanning your codebase")
+  .description("Generate an .envtypes.ts schema from scanning your codebase")
   .option("-d, --dir <path>", "Project directory", ".")
-  .option("-o, --output <path>", "Output schema file", ".typenv.ts")
+  .option("-o, --output <path>", "Output schema file", ".envtypes.ts")
   .option("--force", "Overwrite existing schema file")
   .action((opts) => {
     const cwd = path.resolve(opts.dir);
@@ -245,11 +277,24 @@ function groupByName(usages: EnvVarUsage[]): Map<string, EnvVarUsage[]> {
   return map;
 }
 
-function printVariable(name: string, usages: EnvVarUsage[]): void {
+function printVariable(
+  name: string,
+  usages: EnvVarUsage[],
+  frameworks: FrameworkInfo[] = []
+): void {
   const files = [...new Set(usages.map((u) => u.filePath))];
   const defaultVal = usages.find((u) => u.defaultValue)?.defaultValue;
   const defaultNote = defaultVal ? chalk.dim(` (default: ${defaultVal})`) : "";
-  console.log(`  ${chalk.bold(name)}${defaultNote}`);
+
+  const scope = frameworks.length > 0 ? classifyVariable(name, frameworks) : null;
+  const scopeTag =
+    scope === "client"
+      ? chalk.cyan(" [client]")
+      : scope === "server"
+        ? chalk.magenta(" [server]")
+        : "";
+
+  console.log(`  ${chalk.bold(name)}${defaultNote}${scopeTag}`);
   for (const file of files) {
     const linesInFile = usages
       .filter((u) => u.filePath === file)

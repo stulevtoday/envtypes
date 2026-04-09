@@ -10,6 +10,8 @@ export interface EnvVarUsage {
 
 export type InferredType = "string" | "number" | "boolean" | "url" | "port" | "enum";
 
+export type EnvScope = "server" | "client" | "unknown";
+
 export interface EnvVarSchema {
   name: string;
   type: InferredType;
@@ -17,6 +19,7 @@ export interface EnvVarSchema {
   defaultValue?: string;
   description?: string;
   enumValues?: string[];
+  scope?: EnvScope;
 }
 
 export interface ScanResult {
